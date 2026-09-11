@@ -598,6 +598,12 @@ class RevisionSchedule(Base):
     subject = Column(String, nullable=False)
     topic = Column(String, nullable=False)
  
+        # --- Extra revision fields ---
+    struggle_score = Column(Float, nullable=False, default=0.0)
+    priority = Column(String(50), nullable=False, default="Medium")
+    estimated_minutes = Column(Integer, nullable=False, default=15)
+    status = Column(String(50), nullable=False, default="PENDING")
+    
     # --- SM-2 state ---
     repetition_number = Column(Integer, nullable=False, default=0)
     easiness_factor = Column(Float, nullable=False, default=2.5)   # sm2_initial_ef
@@ -642,3 +648,7 @@ class RevisionHistory(Base):
     reviewed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
  
     schedule = relationship("RevisionSchedule", back_populates="history")
+class StudentRevisionSettings(Base):
+    __tablename__ = 'student_revision_settings'
+    student_id = Column(UUID(as_uuid=True), ForeignKey('students.student_id', ondelete="CASCADE"), primary_key=True)
+    max_daily_minutes = Column(Integer, default=60, nullable=False)

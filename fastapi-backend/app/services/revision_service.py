@@ -144,11 +144,11 @@ def sync_struggles_to_revision_schedule(db: Session, student_id: str):
                 topic=topic_name,
                 struggle_score=struggle_score,
                 priority=priority,
-                repetition=0,
-                ease_factor=2.5,
+                repetition_number=0,
+                easiness_factor=2.5,
                 interval_days=1,
                 estimated_minutes=estimated_mins,
-                scheduled_date=today,
+                next_review_date=today,
                 status="PENDING"
             )
             db.add(new_schedule)
@@ -182,7 +182,7 @@ def balance_workload(db: Session, student_id: str):
     pending_tasks = db.query(RevisionSchedule).filter(
         RevisionSchedule.student_id == student_id,
         RevisionSchedule.status == "PENDING"
-    ).order_by(RevisionSchedule.scheduled_date.asc(), RevisionSchedule.struggle_score.desc()).all()
+    ).order_by(RevisionSchedule.next_review_date.asc(), RevisionSchedule.struggle_score.desc()).all()
 
     if not pending_tasks:
         return
@@ -192,7 +192,7 @@ def balance_workload(db: Session, student_id: str):
 
     for task in pending_tasks:
         # Move overdue past dates to today for balancing
-        curr_date = max(today, task.scheduled_date)
+        curr_date = max(today, task.next_review_date)
 
         # Spreading loop: find earliest date starting from curr_date that can fit task
         target_date = curr_date
@@ -200,7 +200,7 @@ def balance_workload(db: Session, student_id: str):
             current_mins = daily_workload.get(target_date, 0)
             if current_mins + task.estimated_minutes <= max_daily_mins or target_date > curr_date + timedelta(days=14):
                 daily_workload[target_date] = current_mins + task.estimated_minutes
-                task.scheduled_date = target_date
+                task.next_review_date = target_date
                 break
             target_date += timedelta(days=1)
 
@@ -219,28 +219,28 @@ def get_revision_plan(db: Session, student_id: str):
 
     tasks = db.query(RevisionSchedule).filter(
         RevisionSchedule.student_id == student_id
-    ).order_by(RevisionSchedule.scheduled_date.asc(), RevisionSchedule.struggle_score.desc()).all()
+    ).order_by(RevisionSchedule.next_review_date.asc(), RevisionSchedule.struggle_score.desc()).all()
 
-    today_tasks = [t for t in tasks if t.scheduled_date == today and t.status == "PENDING"]
-    completed_today = [t for t in tasks if t.scheduled_date == today and t.status == "COMPLETED"]
-    upcoming_tasks = [t for t in tasks if t.scheduled_date > today]
+    today_tasks = [t for t in tasks if t.next_review_date == today and t.status == "PENDING"]
+    completed_today = [t for t in tasks if t.next_review_date == today and t.status == "COMPLETED"]
+    upcoming_tasks = [t for t in tasks if t.next_review_date > today]
 
     today_minutes = sum(t.estimated_minutes for t in today_tasks)
 
     # Format result tasks
     def format_task(t):
         return {
-            "schedule_id": str(t.schedule_id),
+            "schedule_id": str(t.id),
             "student_id": str(t.student_id),
             "subject": t.subject,
             "topic": t.topic,
             "struggle_score": t.struggle_score,
             "priority": t.priority,
-            "repetition": t.repetition,
-            "ease_factor": t.ease_factor,
+            "repetition": t.repetition_number,
+            "ease_factor": t.easiness_factor,
             "interval_days": t.interval_days,
             "estimated_minutes": t.estimated_minutes,
-            "scheduled_date": t.scheduled_date.isoformat(),
+            "scheduled_date": t.next_review_date.isoformat(),
             "status": t.status,
             "last_reviewed_at": t.last_reviewed_at.isoformat() if t.last_reviewed_at else None
         }
@@ -266,7 +266,7 @@ def record_topic_review(db: Session, student_id: str, schedule_id: str, quality_
     3. Update student's topic mastery score
     """
     schedule = db.query(RevisionSchedule).filter(
-        RevisionSchedule.schedule_id == schedule_id,
+        RevisionSchedule.id == schedule_id,
         RevisionSchedule.student_id == student_id
     ).first()
 
@@ -274,8 +274,8 @@ def record_topic_review(db: Session, student_id: str, schedule_id: str, quality_
         raise ValueError("Revision task not found.")
 
     new_rep, new_ef, new_interval = calculate_sm2(
-        repetition=schedule.repetition,
-        ease_factor=schedule.ease_factor,
+        repetition=schedule.repetition_number,
+        ease_factor=schedule.easiness_factor,
         interval_days=schedule.interval_days,
         quality=quality_score
     )
@@ -283,8 +283,8 @@ def record_topic_review(db: Session, student_id: str, schedule_id: str, quality_
     now_time = datetime.now(timezone.utc)
     today = date.today()
 
-    schedule.repetition = new_rep
-    schedule.ease_factor = new_ef
+    schedule.repetition_number = new_rep
+    schedule.easiness_factor = new_ef
     schedule.interval_days = new_interval
     schedule.last_reviewed_at = now_time
 

@@ -2728,3 +2728,55 @@ def get_struggle_data(
             for row in data
         ],
     }
+
+class RevisionReviewRequest(BaseModel):
+    schedule_id: str
+    quality_score: int
+
+class RevisionSettingsRequest(BaseModel):
+    max_daily_minutes: int
+
+from app.services.revision_service import get_revision_plan, update_revision_settings, record_topic_review
+
+# ============================================================
+# REVISION PLANNER
+# ============================================================
+
+@router.get("/v1/revision/{student_id}/plan")
+@router.get("/students/{student_id}/revision/plan")
+def get_student_revision_plan(
+    student_id: str,
+    db: Session = Depends(get_db),
+):
+    try:
+        return get_revision_plan(db, student_id)
+    except Exception as e:
+        logger.exception(f"Error fetching revision plan: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/v1/revision/{student_id}/settings")
+@router.post("/students/{student_id}/revision/settings")
+def update_student_revision_settings(
+    student_id: str,
+    payload: RevisionSettingsRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return update_revision_settings(db, student_id, payload.max_daily_minutes)
+    except Exception as e:
+        logger.exception(f"Error updating revision settings: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/v1/revision/{student_id}/review")
+@router.post("/students/{student_id}/revision/review")
+def review_revision_task(
+    student_id: str,
+    payload: RevisionReviewRequest,
+    db: Session = Depends(get_db),
+):
+    try:
+        return record_topic_review(db, student_id, payload.schedule_id, payload.quality_score)
+    except Exception as e:
+        logger.exception(f"Error recording revision review: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
