@@ -15,14 +15,18 @@ from fastapi import (
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
-from database.session import get_db
+from database.session import get_db, SessionLocal
 from database.models import (
     Student,
     Document,
     KnowledgeChunk,
+    VivaSession,
+    VivaExchange,
 )
 
 from app.services.viva_service import get_viva_service
+from app.services.stt_service import get_stt_service
+from app.services.tts_service import get_tts_service
 
 
 logger = logging.getLogger(__name__)
@@ -174,6 +178,50 @@ def get_context(
 
 
 # ============================================================
+# PERSIST SESSION TO DB
+# ============================================================
+
+def persist_viva_session_to_db(session: Dict[str, Any], summary: Dict[str, Any]):
+    db = SessionLocal()
+    try:
+        from datetime import datetime
+        
+        db_session = VivaSession(
+            session_id=uuid.UUID(session["session_id"]),
+            student_id=uuid.UUID(session["student_id"]),
+            topic=session.get("topic", "General"),
+            status="completed",
+            started_at=datetime.fromtimestamp(session["started_at"]),
+            completed_at=datetime.now(),
+            average_score=summary.get("average_score", 0),
+            performance_label=summary.get("performance_label", ""),
+            summary_feedback=json.dumps({
+                "strengths": summary.get("strengths", []),
+                "areas_to_improve": summary.get("areas_to_improve", [])
+            })
+        )
+        db.add(db_session)
+        
+        for exchange in session.get("exchanges", []):
+            db_exchange = VivaExchange(
+                session_id=uuid.UUID(session["session_id"]),
+                question_number=exchange.get("question_number", 0),
+                question=exchange.get("question", ""),
+                answer=exchange.get("answer", ""),
+                topic=exchange.get("topic", "General"),
+                score=exchange.get("evaluation", {}).get("score", 0),
+                feedback=exchange.get("evaluation", {}).get("feedback", "")
+            )
+            db.add(db_exchange)
+            
+        db.commit()
+    except Exception as e:
+        logger.exception("Failed to persist viva session to DB: %s", e)
+        db.rollback()
+    finally:
+        db.close()
+
+# ============================================================
 # CREATE SESSION
 # ============================================================
 
@@ -252,6 +300,247 @@ async def safe_send(
         )
 
         return False
+
+
+# ============================================================
+# TTS HELPER
+# Attaches base64 examiner-voice audio to a question payload.
+# Soft-fails (adds tts_error instead of raising) so a missing
+# OPENAI_API_KEY never blocks the viva flow -- frontend falls
+# back to browser speechSynthesis when audio_base64 is absent.
+# ============================================================
+
+async def attach_tts(payload: Dict[str, Any], text: str) -> Dict[str, Any]:
+
+    tts_service = get_tts_service()
+
+    try:
+        result = await asyncio.to_thread(
+            tts_service.synthesize_to_base64,
+            text,
+        )
+    except Exception as exc:
+        logger.exception("TTS synthesis error: %s", exc)
+        result = {"success": False, "error": "TTS_SYNTHESIS_FAILED"}
+
+    if result.get("success"):
+        payload["audio_base64"] = result["audio_base64"]
+        payload["audio_format"] = result.get("format", "mp3")
+    else:
+        payload["tts_error"] = result.get("error", "TTS_UNAVAILABLE")
+
+    return payload
+
+
+# ============================================================
+# SHARED ANSWER PROCESSING
+# Used by both the "answer"/"transcript" (typed) path and the
+# "audio" (Whisper) path so evaluation logic lives in one place.
+# Returns True if the caller's message loop should break
+# (session completed).
+# ============================================================
+
+async def process_student_answer(
+    websocket: WebSocket,
+    session: Dict[str, Any],
+    answer: str,
+) -> bool:
+
+    if not session["current_question"]:
+
+        await safe_send(
+            websocket,
+            {
+                "type": "error",
+                "code": "NO_ACTIVE_QUESTION",
+                "message": "There is no active viva question.",
+            },
+        )
+
+        return False
+
+    question = session["current_question"]
+    topic = session["current_topic"]
+    question_number = session["question_number"]
+
+    await safe_send(
+        websocket,
+        {
+            "type": "evaluation_started",
+            "question_number": question_number,
+        },
+    )
+
+    viva_service = get_viva_service()
+
+    try:
+
+        evaluation = await asyncio.to_thread(
+            viva_service.evaluate_answer,
+            session["context"],
+            question,
+            answer,
+            topic,
+        )
+
+    except Exception as exc:
+
+        logger.exception("Viva evaluation error: %s", exc)
+
+        await safe_send(
+            websocket,
+            {
+                "type": "error",
+                "code": "EVALUATION_FAILED",
+                "message": "Unable to evaluate the answer.",
+            },
+        )
+
+        return False
+
+    exchange = {
+        "question_number": question_number,
+        "question": question,
+        "answer": answer,
+        "topic": topic,
+        "evaluation": evaluation,
+        "timestamp": time.time(),
+    }
+
+    session["exchanges"].append(exchange)
+
+    await safe_send(
+        websocket,
+        {
+            "type": "evaluation",
+            "question_number": question_number,
+            "question": question,
+            "answer": answer,
+            "evaluation": evaluation,
+        },
+    )
+
+    if question_number >= session["max_questions"]:
+
+        session["status"] = "completed"
+
+        try:
+            summary = viva_service.generate_summary(
+                session["exchanges"]
+            )
+        except Exception:
+            summary = {"message": "Viva completed."}
+
+        await safe_send(
+            websocket,
+            {
+                "type": "session_completed",
+                "status": "completed",
+                "summary": summary,
+                "transcript": session["exchanges"],
+            },
+        )
+
+        return True
+
+    next_question_number = question_number + 1
+
+    try:
+
+        next_question = await asyncio.to_thread(
+            viva_service.generate_question,
+            context=session["context"],
+            previous_question=question,
+            previous_answer=answer,
+            question_number=next_question_number,
+        )
+
+    except TypeError:
+
+        try:
+            next_question = await asyncio.to_thread(
+                viva_service.generate_question,
+                session["context"],
+                question,
+                answer,
+                next_question_number,
+            )
+        except Exception as exc:
+            logger.exception("Follow-up generation error: %s", exc)
+
+            await safe_send(
+                websocket,
+                {
+                    "type": "error",
+                    "code": "QUESTION_GENERATION_FAILED",
+                    "message": "Unable to generate the next question.",
+                },
+            )
+
+            return False
+
+    except Exception as exc:
+
+        logger.exception("Follow-up generation error: %s", exc)
+
+        await safe_send(
+            websocket,
+            {
+                "type": "error",
+                "code": "QUESTION_GENERATION_FAILED",
+                "message": "Unable to generate the next question.",
+            },
+        )
+
+        return False
+
+    if not isinstance(next_question, dict):
+
+        await safe_send(
+            websocket,
+            {
+                "type": "error",
+                "code": "INVALID_QUESTION_RESPONSE",
+                "message": "Examiner returned an invalid question.",
+            },
+        )
+
+        return False
+
+    generated_question = next_question.get("question")
+
+    if not generated_question:
+
+        await safe_send(
+            websocket,
+            {
+                "type": "error",
+                "code": "EMPTY_QUESTION",
+                "message": "Examiner generated an empty question.",
+            },
+        )
+
+        return False
+
+    session["question_number"] = next_question_number
+    session["current_question"] = generated_question
+    session["current_topic"] = next_question.get("topic", "General")
+
+    question_payload = {
+        "type": "question",
+        "question": generated_question,
+        "question_number": next_question_number,
+        "topic": session["current_topic"],
+        "status": "waiting_for_answer",
+    }
+
+    question_payload = await attach_tts(
+        question_payload, generated_question
+    )
+
+    await safe_send(websocket, question_payload)
+
+    return False
 
 
 # ============================================================
@@ -549,16 +838,19 @@ async def viva_websocket(
         and session["current_question"]
     ):
 
-        await safe_send(
-            websocket,
-            {
-                "type": "question",
-                "question": session["current_question"],
-                "question_number": session["question_number"],
-                "topic": session["current_topic"],
-                "status": "waiting_for_answer",
-            },
+        initial_payload = {
+            "type": "question",
+            "question": session["current_question"],
+            "question_number": session["question_number"],
+            "topic": session["current_topic"],
+            "status": "waiting_for_answer",
+        }
+
+        initial_payload = await attach_tts(
+            initial_payload, session["current_question"]
         )
+
+        await safe_send(websocket, initial_payload)
 
     # ========================================================
     # MESSAGE LOOP
@@ -748,323 +1040,17 @@ async def viva_websocket(
 
                     continue
 
-                # ------------------------------------------------
-                # Active question check
-                # ------------------------------------------------
-
-                if not session["current_question"]:
-
-                    await safe_send(
-                        websocket,
-                        {
-                            "type": "error",
-                            "code": "NO_ACTIVE_QUESTION",
-                            "message": (
-                                "There is no active viva question."
-                            ),
-                        },
-                    )
-
-                    continue
-
-                question = session[
-                    "current_question"
-                ]
-
-                topic = session[
-                    "current_topic"
-                ]
-
-                question_number = session[
-                    "question_number"
-                ]
-
-                # ------------------------------------------------
-                # Evaluation started
-                # ------------------------------------------------
-
-                await safe_send(
-                    websocket,
-                    {
-                        "type": "evaluation_started",
-                        "question_number": question_number,
-                    },
+                should_break = await process_student_answer(
+                    websocket, session, answer
                 )
 
-                # ------------------------------------------------
-                # Evaluate answer
-                # ------------------------------------------------
-
-                viva_service = get_viva_service()
-
-                try:
-
-                    evaluation = (
-                        await asyncio.to_thread(
-                            viva_service.evaluate_answer,
-                            session["context"],
-                            question,
-                            answer,
-                            topic,
-                        )
-                    )
-
-                except Exception as exc:
-
-                    logger.exception(
-                        "Viva evaluation error: %s",
-                        exc,
-                    )
-
-                    await safe_send(
-                        websocket,
-                        {
-                            "type": "error",
-                            "code": "EVALUATION_FAILED",
-                            "message": (
-                                "Unable to evaluate the answer."
-                            ),
-                        },
-                    )
-
-                    continue
-
-                # ------------------------------------------------
-                # Save exchange
-                # ------------------------------------------------
-
-                exchange = {
-                    "question_number": question_number,
-                    "question": question,
-                    "answer": answer,
-                    "topic": topic,
-                    "evaluation": evaluation,
-                    "timestamp": time.time(),
-                }
-
-                session["exchanges"].append(
-                    exchange
-                )
-
-                # ------------------------------------------------
-                # Send evaluation
-                # ------------------------------------------------
-
-                await safe_send(
-                    websocket,
-                    {
-                        "type": "evaluation",
-                        "question_number": question_number,
-                        "question": question,
-                        "answer": answer,
-                        "evaluation": evaluation,
-                    },
-                )
-
-                # ------------------------------------------------
-                # Maximum questions reached
-                # ------------------------------------------------
-
-                if (
-                    question_number
-                    >= session["max_questions"]
-                ):
-
-                    session["status"] = "completed"
-
-                    try:
-
-                        summary = (
-                            viva_service.generate_summary(
-                                session["exchanges"]
-                            )
-                        )
-
-                    except Exception:
-
-                        summary = {
-                            "message": "Viva completed."
-                        }
-
-                    await safe_send(
-                        websocket,
-                        {
-                            "type": "session_completed",
-                            "status": "completed",
-                            "summary": summary,
-                            "transcript": session[
-                                "exchanges"
-                            ],
-                        },
-                    )
-
+                if should_break:
                     break
-
-                # ------------------------------------------------
-                # Generate next follow-up
-                # ------------------------------------------------
-
-                next_question_number = (
-                    question_number + 1
-                )
-
-                try:
-
-                    next_question = (
-                        await asyncio.to_thread(
-                            viva_service.generate_question,
-                            context=session["context"],
-                            previous_question=question,
-                            previous_answer=answer,
-                            question_number=next_question_number,
-                        )
-                    )
-
-                except TypeError:
-
-                    # Compatibility fallback if your current
-                    # viva_service uses positional arguments.
-                    try:
-
-                        next_question = (
-                            await asyncio.to_thread(
-                                viva_service.generate_question,
-                                session["context"],
-                                question,
-                                answer,
-                                next_question_number,
-                            )
-                        )
-
-                    except Exception as exc:
-
-                        logger.exception(
-                            "Follow-up generation error: %s",
-                            exc,
-                        )
-
-                        await safe_send(
-                            websocket,
-                            {
-                                "type": "error",
-                                "code": (
-                                    "QUESTION_GENERATION_FAILED"
-                                ),
-                                "message": (
-                                    "Unable to generate the next question."
-                                ),
-                            },
-                        )
-
-                        continue
-
-                except Exception as exc:
-
-                    logger.exception(
-                        "Follow-up generation error: %s",
-                        exc,
-                    )
-
-                    await safe_send(
-                        websocket,
-                        {
-                            "type": "error",
-                            "code": (
-                                "QUESTION_GENERATION_FAILED"
-                            ),
-                            "message": (
-                                "Unable to generate the next question."
-                            ),
-                        },
-                    )
-
-                    continue
-
-                # ------------------------------------------------
-                # Validate generated question
-                # ------------------------------------------------
-
-                if not isinstance(
-                    next_question,
-                    dict,
-                ):
-
-                    await safe_send(
-                        websocket,
-                        {
-                            "type": "error",
-                            "code": (
-                                "INVALID_QUESTION_RESPONSE"
-                            ),
-                            "message": (
-                                "Examiner returned an invalid question."
-                            ),
-                        },
-                    )
-
-                    continue
-
-                generated_question = (
-                    next_question.get(
-                        "question"
-                    )
-                )
-
-                if not generated_question:
-
-                    await safe_send(
-                        websocket,
-                        {
-                            "type": "error",
-                            "code": (
-                                "EMPTY_QUESTION"
-                            ),
-                            "message": (
-                                "Examiner generated an empty question."
-                            ),
-                        },
-                    )
-
-                    continue
-
-                # ------------------------------------------------
-                # Update session state
-                # ------------------------------------------------
-
-                session["question_number"] = (
-                    next_question_number
-                )
-
-                session["current_question"] = (
-                    generated_question
-                )
-
-                session["current_topic"] = (
-                    next_question.get(
-                        "topic",
-                        "General",
-                    )
-                )
-
-                # ------------------------------------------------
-                # Send next question
-                # ------------------------------------------------
-
-                await safe_send(
-                    websocket,
-                    {
-                        "type": "question",
-                        "question": generated_question,
-                        "question_number": next_question_number,
-                        "topic": session["current_topic"],
-                        "status": "waiting_for_answer",
-                    },
-                )
 
                 continue
 
             # =================================================
-            # AUDIO
+            # AUDIO  (Whisper STT integration point)
             # =================================================
 
             if message_type == "audio":
@@ -1088,20 +1074,93 @@ async def viva_websocket(
 
                     continue
 
-                # ------------------------------------------------
-                # Member 3 / Whisper integration point
-                # ------------------------------------------------
-
                 await safe_send(
                     websocket,
                     {
                         "type": "audio_received",
                         "message": (
-                            "Audio received successfully. "
-                            "Waiting for speech-to-text processing."
+                            "Audio received. Transcribing..."
                         ),
                     },
                 )
+
+                stt_service = get_stt_service()
+
+                try:
+
+                    stt_result = await asyncio.to_thread(
+                        stt_service.transcribe_base64_audio,
+                        audio_data,
+                        message.get("filename", "answer.webm"),
+                    )
+
+                except Exception as exc:
+
+                    logger.exception(
+                        "STT transcription error: %s", exc
+                    )
+
+                    stt_result = {
+                        "success": False,
+                        "error": "TRANSCRIPTION_FAILED",
+                    }
+
+                if not stt_result.get("success"):
+
+                    error_code = stt_result.get(
+                        "error", "TRANSCRIPTION_FAILED"
+                    )
+
+                    error_messages = {
+                        "STT_NOT_CONFIGURED": (
+                            "Speech-to-text is not configured on "
+                            "the server (missing OPENAI_API_KEY). "
+                            "Please type your answer instead."
+                        ),
+                        "EMPTY_AUDIO": (
+                            "No audio was captured. Please try "
+                            "recording again."
+                        ),
+                        "UNCLEAR_AUDIO": (
+                            "Could not understand the audio. "
+                            "Please speak clearly and try again."
+                        ),
+                        "INVALID_AUDIO_ENCODING": (
+                            "Audio data was corrupted in transit. "
+                            "Please try recording again."
+                        ),
+                    }
+
+                    await safe_send(
+                        websocket,
+                        {
+                            "type": "error",
+                            "code": error_code,
+                            "message": error_messages.get(
+                                error_code,
+                                "Unable to transcribe audio.",
+                            ),
+                        },
+                    )
+
+                    continue
+
+                transcript_text = stt_result["text"]
+
+                await safe_send(
+                    websocket,
+                    {
+                        "type": "transcript_ready",
+                        "text": transcript_text,
+                    },
+                )
+
+                should_break = await process_student_answer(
+                    websocket, session, transcript_text
+                )
+
+                if should_break:
+                    break
 
                 continue
 
@@ -1182,4 +1241,3 @@ async def viva_websocket(
         if session.get("websocket") is websocket:
 
             session["websocket"] = None
-

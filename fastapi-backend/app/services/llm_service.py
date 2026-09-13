@@ -129,10 +129,7 @@ class LLMService:
             flags=re.IGNORECASE
         )
 
-        content = content.replace(
-            "```",
-            ""
-        ).strip()
+        content = content.replace('`', '').strip()
 
         # Find JSON array
         start = content.find("[")
@@ -524,6 +521,101 @@ STUDY MATERIAL:
             return []
 
 
+    # ============================================================
+    # EVALUATE VIVA ANSWER
+    # ============================================================
+
+    def evaluate_viva_answer(
+        self,
+        context: str,
+        question: str,
+        answer: str,
+        topic: str = "General",
+    ) -> Dict:
+        
+        if not answer.strip():
+            return {
+                "score": 0,
+                "is_correct": False,
+                "feedback": "No answer provided.",
+                "strengths": [],
+                "areas_to_improve": ["Provide a complete answer"]
+            }
+
+        prompt = f'''
+You are an expert examiner evaluating a student's answer in a viva (oral exam).
+Evaluate the student's answer against the context provided.
+Be fair and encouraging, but accurate.
+
+Topic: {topic}
+Question: {question}
+Student's Answer: {answer}
+
+Reference Context:
+{context}
+
+Respond in pure JSON format only, with no markdown formatting or \\\json block.
+The JSON must contain exactly these fields:
+- "score": A number out of 10 based on accuracy and completeness.
+- "is_correct": Boolean (true if score >= 5, false otherwise).
+- "feedback": A 1-2 sentence response directly to the student explaining what they got right or wrong.
+- "strengths": An array of up to 2 short strings pointing out good aspects of their answer.
+- "areas_to_improve": An array of up to 2 short strings pointing out missing details or errors.
+'''
+        try:
+            response = self.llm.invoke(prompt)
+            content = self._extract_response_text(response)
+            
+            # Remove markdown if present
+            content = re.sub(r"```json\s*", "", content, flags=re.IGNORECASE)
+            content = content.replace('`', '').strip()
+            
+            evaluation = json.loads(content)
+            return evaluation
+        except Exception as e:
+            logger.error(f"Error evaluating viva answer: {e}")
+            raise
+
+    # ============================================================
+    # GENERATE VIVA FOLLOW-UP
+    # ============================================================
+
+    def generate_viva_follow_up(
+        self,
+        context: str,
+        previous_question: str,
+        previous_answer: str,
+    ) -> Dict:
+
+        prompt = f'''
+You are an expert examiner conducting a viva (oral exam).
+The student just answered a question. Generate the next question.
+The next question should logically follow up on their previous answer OR test another concept from the context.
+Keep the question conversational and spoken-style. Do NOT generate multiple-choice options.
+
+Context:
+{context}
+
+Previous Question: {previous_question}
+Student's Answer: {previous_answer}
+
+Respond in pure JSON format only, with no markdown formatting or \\\json block.
+The JSON must contain exactly this field:
+- "question": The question string to ask the student.
+'''
+        try:
+            response = self.llm.invoke(prompt)
+            content = self._extract_response_text(response)
+            
+            content = re.sub(r"```json\s*", "", content, flags=re.IGNORECASE)
+            content = content.replace('`', '').strip()
+            
+            result = json.loads(content)
+            return result
+        except Exception as e:
+            logger.error(f"Error generating viva follow-up: {e}")
+            raise
+
 # ============================================================
 # SINGLETON
 # ============================================================
@@ -538,4 +630,5 @@ def get_llm_service() -> LLMService:
         _llm_service_instance = LLMService()
 
     return _llm_service_instance
+
 
