@@ -35,7 +35,7 @@ export const AuthProvider = ({ children }) => {
   const login = async (email, password) => {
     try {
       const res = await fetch(
-        "http://localhost:5000/api/login",
+        "http://localhost:8000/api/v1/login",
         {
           method: "POST",
           headers: {

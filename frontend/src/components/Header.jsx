@@ -25,41 +25,83 @@ const Header = () => {
           </Link>
 
           {/* Navigation */}
-          <ul className="nav">
+          <ul
+            className="nav justify-content-center"
+            style={{
+              display: "grid",
+              gridTemplateColumns: "repeat(5, auto)",
+              gap: "4px 8px",
+              alignItems: "center",
+            }}
+          >
 
+            {/* Home */}
             <li>
               <Link
                 to="/"
                 className="nav-link nav-item-custom"
               >
+                <i className="bi bi-house-door me-1"></i>
                 Home
               </Link>
             </li>
 
+            {/* Library */}
             <li>
               <Link
                 to="/library"
                 className="nav-link nav-item-custom"
               >
+                <i className="bi bi-book me-1"></i>
                 Library
               </Link>
             </li>
 
+            {/* Test Practice */}
             <li>
               <Link
                 to="/test"
                 className="nav-link nav-item-custom"
               >
+                <i className="bi bi-pencil-square me-1"></i>
                 Test Practice
               </Link>
             </li>
 
+            {/* Top Struggles */}
             <li>
-              <Link to="/dashboard" className="nav-link nav-item-custom">
+              <Link
+                to="/dashboard"
+                className="nav-link nav-item-custom"
+              >
+                <i className="bi bi-bar-chart-line me-1"></i>
                 Top Struggles
               </Link>
             </li>
 
+            {/* Study Planner */}
+            <li>
+              <Link
+                to="/study-planner"
+                className="nav-link nav-item-custom"
+              >
+                <i className="bi bi-calendar-check me-1"></i>
+                Study Planner
+              </Link>
+            </li>
+
+            {/* Pro Plan / Payment */}
+<li>
+  <Link
+    to="/payment"
+    className="nav-link nav-item-custom"
+  >
+    <i className="bi bi-credit-card me-1"></i>
+    Pro Plan
+  </Link>
+</li>
+
+            {/* Student Profile */}
             <li>
               <Link
                 to="/student-profile"
@@ -70,14 +112,17 @@ const Header = () => {
               </Link>
             </li>
 
+            {/* Parents Dashboard */}
             <li>
               <Link
                 to="/parents-dashboard"
                 className="nav-link nav-item-custom"
               >
+                <i className="bi bi-people me-1"></i>
                 Parents Dashboard
               </Link>
             </li>
+
           </ul>
 
           {/* Search */}

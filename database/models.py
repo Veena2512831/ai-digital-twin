@@ -1,3 +1,4 @@
+from datetime import date, datetime
 import uuid
 
 from sqlalchemy import (
@@ -10,8 +11,10 @@ from sqlalchemy import (
     Date,
     Integer,
     Float,
+    Boolean,
     Index,
-    func
+    UniqueConstraint,
+    func,
 )
 
 from sqlalchemy.dialects.postgresql import UUID
@@ -20,6 +23,10 @@ from pgvector.sqlalchemy import Vector
 
 from database.session import Base
 
+
+# ============================================================
+# STUDENT MODEL
+# ============================================================
 
 class Student(Base):
     __tablename__ = "students"
@@ -71,49 +78,19 @@ class Student(Base):
         server_default=func.now()
     )
 
+    # Student's knowledge chunks
     chunks = relationship(
         "KnowledgeChunk",
         back_populates="student",
         cascade="all, delete-orphan"
     )
 
+    # Student's uploaded documents
     documents = relationship(
         "Document",
         back_populates="student",
         cascade="all, delete-orphan"
     )
-
-    mastery_records = relationship(
-        "StudentMastery",
-        back_populates="student",
-        cascade="all, delete-orphan"
-    )
-
-    tests = relationship(
-        "Test",
-        back_populates="student",
-        cascade="all, delete-orphan"
-    )
-
-    created_at = Column(
-        DateTime(timezone=True),
-        server_default=func.now()
-    )
-
-    # Student's uploaded knowledge chunks
-    chunks = relationship(
-        "KnowledgeChunk",
-        back_populates="student",
-        cascade="all, delete-orphan"
-    )
-
-    # Student's documents
-    documents = relationship(
-        "Document",
-        back_populates="student",
-        cascade="all, delete-orphan"
-    )
-
 
     # Student's mastery records
     mastery_records = relationship(
@@ -131,7 +108,7 @@ class Student(Base):
 
 
 # ============================================================
-# Knowledge Chunk Model
+# KNOWLEDGE CHUNK MODEL
 # ============================================================
 
 class KnowledgeChunk(Base):
@@ -189,6 +166,10 @@ class KnowledgeChunk(Base):
         back_populates="chunks"
     )
 
+
+# ============================================================
+# STUDENT MASTERY MODEL
+# ============================================================
 
 class StudentMastery(Base):
     __tablename__ = "student_mastery"
@@ -253,6 +234,10 @@ class StudentMastery(Base):
     )
 
 
+# ============================================================
+# MASTERY SNAPSHOT MODEL
+# ============================================================
+
 class MasterySnapshot(Base):
     __tablename__ = "mastery_snapshots"
 
@@ -302,7 +287,9 @@ class MasterySnapshot(Base):
         nullable=False
     )
 
-    student = relationship("Student")
+    student = relationship(
+        "Student"
+    )
 
     __table_args__ = (
         Index(
@@ -314,6 +301,10 @@ class MasterySnapshot(Base):
         ),
     )
 
+
+# ============================================================
+# SYLLABUS WEIGHT MODEL
+# ============================================================
 
 class SyllabusWeight(Base):
     __tablename__ = "syllabus_weights"
@@ -334,16 +325,12 @@ class SyllabusWeight(Base):
         nullable=False
     )
 
-    # 0.0 - 1.0, how heavily this topic counts in the exam/syllabus
     weight = Column(
         Float,
         nullable=False,
         default=1.0
     )
 
-    # Optional - matches Student.board / Student.grade for
-    # future board/grade-specific weighting. Not used by the
-    # Week 4 Struggle Algorithm, but safe to have now.
     board = Column(
         String(100),
         nullable=True
@@ -354,9 +341,6 @@ class SyllabusWeight(Base):
         nullable=True
     )
 
-    # Optional - lets a topic point to a parent topic later
-    # (e.g. "Kinematics" under "Mechanics") without forcing any
-    # tree-walking logic to be built right now.
     parent_id = Column(
         UUID(as_uuid=True),
         ForeignKey(
@@ -380,6 +364,10 @@ class SyllabusWeight(Base):
         ),
     )
 
+
+# ============================================================
+# TEST MODEL
+# ============================================================
 
 class Test(Base):
     __tablename__ = "tests"
@@ -426,6 +414,10 @@ class Test(Base):
     )
 
 
+# ============================================================
+# TEST QUESTION MODEL
+# ============================================================
+
 class TestQuestion(Base):
     __tablename__ = "test_questions"
 
@@ -470,6 +462,10 @@ class TestQuestion(Base):
     )
 
 
+# ============================================================
+# DOCUMENT MODEL
+# ============================================================
+
 class Document(Base):
     __tablename__ = "documents"
 
@@ -493,6 +489,12 @@ class Document(Base):
         nullable=False
     )
 
+    # Subject entered manually by the user
+    subject = Column(
+        String(100),
+        nullable=False
+    )
+
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now()
@@ -509,8 +511,9 @@ class Document(Base):
         cascade="all, delete-orphan"
     )
 
+
 # ============================================================
-# Student Mastery History Model
+# STUDENT MASTERY HISTORY MODEL
 # ============================================================
 
 class StudentMasteryHistory(Base):
@@ -524,28 +527,869 @@ class StudentMasteryHistory(Base):
 
     student_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("students.student_id", ondelete="CASCADE"),
+        ForeignKey(
+            "students.student_id",
+            ondelete="CASCADE"
+        ),
         nullable=False
     )
 
     mastery_id = Column(
         UUID(as_uuid=True),
-        ForeignKey("student_mastery.mastery_id", ondelete="CASCADE"),
+        ForeignKey(
+            "student_mastery.mastery_id",
+            ondelete="CASCADE"
+        ),
         nullable=True
     )
 
-    subject = Column(String(100), nullable=False)
-    topic = Column(String(255), nullable=False)
-    mastery_score = Column(Float, nullable=False)
-    
-    # What caused this update? (e.g. test_id or just 'manual')
-    source_type = Column(String(50), nullable=True, default="test")
-    source_id = Column(String(255), nullable=True)
+    subject = Column(
+        String(100),
+        nullable=False
+    )
+
+    topic = Column(
+        String(255),
+        nullable=False
+    )
+
+    mastery_score = Column(
+        Float,
+        nullable=False
+    )
+
+    source_type = Column(
+        String(50),
+        nullable=True,
+        default="test"
+    )
+
+    source_id = Column(
+        String(255),
+        nullable=True
+    )
 
     timestamp = Column(
         DateTime(timezone=True),
         server_default=func.now()
     )
 
-    student = relationship("Student")
-    mastery_record = relationship("StudentMastery")
+    student = relationship(
+        "Student"
+    )
+
+    mastery_record = relationship(
+        "StudentMastery"
+    )
+
+    # ============================================================
+# REVISION SCHEDULE MODELS
+# ============================================================
+
+class RevisionSchedule(Base):
+    """Current SM-2 scheduling state for one (student, subject, topic)."""
+    __tablename__ = "revision_schedules"
+
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True
+    )
+
+    student_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("students.student_id"),
+        nullable=False,
+        index=True
+    )
+
+    subject = Column(String, nullable=False)
+    topic = Column(String, nullable=False)
+
+    # Extra revision fields
+    struggle_score = Column(Float, nullable=False, default=0.0)
+    priority = Column(String(50), nullable=False, default="Medium")
+    estimated_minutes = Column(Integer, nullable=False, default=15)
+    status = Column(String(50), nullable=False, default="PENDING")
+
+    # SM-2 state
+    repetition_number = Column(Integer, nullable=False, default=0)
+    easiness_factor = Column(Float, nullable=False, default=2.5)
+    interval_days = Column(Integer, nullable=False, default=0)
+    next_review_date = Column(Date, nullable=False, default=date.today)
+    last_reviewed_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow
+    )
+
+    history = relationship(
+        "RevisionHistory",
+        back_populates="schedule",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "student_id",
+            "subject",
+            "topic",
+            name="uq_student_subject_topic"
+        ),
+    )
+
+
+class RevisionHistory(Base):
+    """Append-only log of every revision review."""
+    __tablename__ = "revision_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    schedule_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("revision_schedules.id"),
+        nullable=False,
+        index=True
+    )
+
+    quality = Column(Integer, nullable=False)
+    was_success = Column(Boolean, nullable=False)
+
+    # State before review
+    easiness_factor_before = Column(Float, nullable=False)
+    interval_days_before = Column(Integer, nullable=False)
+    repetition_number_before = Column(Integer, nullable=False)
+
+    # State after review
+    easiness_factor_after = Column(Float, nullable=False)
+    interval_days_after = Column(Integer, nullable=False)
+    repetition_number_after = Column(Integer, nullable=False)
+
+    reviewed_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False
+    )
+
+    schedule = relationship(
+        "RevisionSchedule",
+        back_populates="history"
+    )
+
+
+class StudentRevisionSettings(Base):
+    __tablename__ = "student_revision_settings"
+
+    student_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("students.student_id", ondelete="CASCADE"),
+        primary_key=True
+    )
+
+    max_daily_minutes = Column(
+        Integer,
+        default=60,
+        nullable=False
+    )
+
+    from datetime import date, datetime
+import uuid
+
+from sqlalchemy import (
+    Column,
+    String,
+    Text,
+    ForeignKey,
+    ARRAY,
+    DateTime,
+    Date,
+    Integer,
+    Float,
+    Boolean,
+    Index,
+    UniqueConstraint,
+    func,
+)
+
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import relationship
+from pgvector.sqlalchemy import Vector
+
+from database.session import Base
+
+
+# ============================================================
+# STUDENT MODEL
+# ============================================================
+
+class Student(Base):
+    __tablename__ = "students"
+
+    student_id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4
+    )
+
+    email = Column(
+        String(255),
+        unique=True,
+        nullable=False
+    )
+
+    full_name = Column(
+        String(255),
+        nullable=False
+    )
+
+    password_hash = Column(
+        String(255),
+        nullable=True
+    )
+
+    board = Column(
+        String(100),
+        nullable=True
+    )
+
+    grade = Column(
+        String(50),
+        nullable=True
+    )
+
+    date_of_birth = Column(
+        Date,
+        nullable=True
+    )
+
+    guardian_email = Column(
+        String(255),
+        nullable=True
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
+    # Student's knowledge chunks
+    chunks = relationship(
+        "KnowledgeChunk",
+        back_populates="student",
+        cascade="all, delete-orphan"
+    )
+
+    # Student's uploaded documents
+    documents = relationship(
+        "Document",
+        back_populates="student",
+        cascade="all, delete-orphan"
+    )
+
+    # Student's mastery records
+    mastery_records = relationship(
+        "StudentMastery",
+        back_populates="student",
+        cascade="all, delete-orphan"
+    )
+
+    # Student's tests
+    tests = relationship(
+        "Test",
+        back_populates="student",
+        cascade="all, delete-orphan"
+    )
+
+
+# ============================================================
+# KNOWLEDGE CHUNK MODEL
+# ============================================================
+
+class KnowledgeChunk(Base):
+    __tablename__ = "knowledge_chunks"
+
+    chunk_id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4
+    )
+
+    student_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "students.student_id",
+            ondelete="CASCADE"
+        ),
+        nullable=False
+    )
+
+    text_content = Column(
+        Text,
+        nullable=False
+    )
+
+    topic_tags = Column(
+        ARRAY(String(100))
+    )
+
+    embedding = Column(
+        Vector(1536)
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
+    document_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "documents.document_id",
+            ondelete="CASCADE"
+        ),
+        nullable=True
+    )
+
+    student = relationship(
+        "Student",
+        back_populates="chunks"
+    )
+
+    document = relationship(
+        "Document",
+        back_populates="chunks"
+    )
+
+
+# ============================================================
+# STUDENT MASTERY MODEL
+# ============================================================
+
+class StudentMastery(Base):
+    __tablename__ = "student_mastery"
+
+    mastery_id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4
+    )
+
+    student_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "students.student_id",
+            ondelete="CASCADE"
+        ),
+        nullable=False
+    )
+
+    subject = Column(
+        String(100),
+        nullable=False
+    )
+
+    topic = Column(
+        String(255),
+        nullable=False
+    )
+
+    correct_answers = Column(
+        Integer,
+        default=0,
+        nullable=False
+    )
+
+    total_questions = Column(
+        Integer,
+        default=0,
+        nullable=False
+    )
+
+    mastery_score = Column(
+        Float,
+        default=0.0,
+        nullable=False
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
+    updated_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now()
+    )
+
+    student = relationship(
+        "Student",
+        back_populates="mastery_records"
+    )
+
+
+# ============================================================
+# MASTERY SNAPSHOT MODEL
+# ============================================================
+
+class MasterySnapshot(Base):
+    __tablename__ = "mastery_snapshots"
+
+    snapshot_id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4
+    )
+
+    student_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "students.student_id",
+            ondelete="CASCADE"
+        ),
+        nullable=False
+    )
+
+    subject = Column(
+        String(100),
+        nullable=False
+    )
+
+    topic = Column(
+        String(255),
+        nullable=False
+    )
+
+    correct_answers = Column(
+        Integer,
+        nullable=False
+    )
+
+    total_questions = Column(
+        Integer,
+        nullable=False
+    )
+
+    mastery_score = Column(
+        Float,
+        nullable=False
+    )
+
+    snapshot_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        nullable=False
+    )
+
+    student = relationship(
+        "Student"
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_mastery_snapshots_lookup",
+            "student_id",
+            "subject",
+            "topic",
+            "snapshot_at"
+        ),
+    )
+
+
+# ============================================================
+# SYLLABUS WEIGHT MODEL
+# ============================================================
+
+class SyllabusWeight(Base):
+    __tablename__ = "syllabus_weights"
+
+    weight_id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4
+    )
+
+    subject = Column(
+        String(100),
+        nullable=False
+    )
+
+    topic = Column(
+        String(255),
+        nullable=False
+    )
+
+    weight = Column(
+        Float,
+        nullable=False,
+        default=1.0
+    )
+
+    board = Column(
+        String(100),
+        nullable=True
+    )
+
+    grade = Column(
+        String(50),
+        nullable=True
+    )
+
+    parent_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "syllabus_weights.weight_id",
+            ondelete="SET NULL"
+        ),
+        nullable=True
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_syllabus_weights_subject_topic",
+            "subject",
+            "topic",
+            unique=True
+        ),
+    )
+
+
+# ============================================================
+# TEST MODEL
+# ============================================================
+
+class Test(Base):
+    __tablename__ = "tests"
+
+    test_id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4
+    )
+
+    student_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "students.student_id",
+            ondelete="CASCADE"
+        ),
+        nullable=False
+    )
+
+    title = Column(
+        String(255),
+        nullable=False
+    )
+
+    subject = Column(
+        String(100),
+        nullable=False
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
+    student = relationship(
+        "Student",
+        back_populates="tests"
+    )
+
+    questions = relationship(
+        "TestQuestion",
+        back_populates="test",
+        cascade="all, delete-orphan"
+    )
+
+
+# ============================================================
+# TEST QUESTION MODEL
+# ============================================================
+
+class TestQuestion(Base):
+    __tablename__ = "test_questions"
+
+    question_id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4
+    )
+
+    test_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "tests.test_id",
+            ondelete="CASCADE"
+        ),
+        nullable=False
+    )
+
+    topic = Column(
+        String(255),
+        nullable=False
+    )
+
+    question_text = Column(
+        Text,
+        nullable=False
+    )
+
+    correct_answer = Column(
+        String(255),
+        nullable=False
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
+    test = relationship(
+        "Test",
+        back_populates="questions"
+    )
+
+
+# ============================================================
+# DOCUMENT MODEL
+# ============================================================
+
+class Document(Base):
+    __tablename__ = "documents"
+
+    document_id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4
+    )
+
+    student_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "students.student_id",
+            ondelete="CASCADE"
+        ),
+        nullable=False
+    )
+
+    filename = Column(
+        String(255),
+        nullable=False
+    )
+
+    # Subject entered manually by the user
+    subject = Column(
+        String(100),
+        nullable=False
+    )
+
+    created_at = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
+    student = relationship(
+        "Student",
+        back_populates="documents"
+    )
+
+    chunks = relationship(
+        "KnowledgeChunk",
+        back_populates="document",
+        cascade="all, delete-orphan"
+    )
+
+
+# ============================================================
+# STUDENT MASTERY HISTORY MODEL
+# ============================================================
+
+class StudentMasteryHistory(Base):
+    __tablename__ = "student_mastery_history"
+
+    history_id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4
+    )
+
+    student_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "students.student_id",
+            ondelete="CASCADE"
+        ),
+        nullable=False
+    )
+
+    mastery_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "student_mastery.mastery_id",
+            ondelete="CASCADE"
+        ),
+        nullable=True
+    )
+
+    subject = Column(
+        String(100),
+        nullable=False
+    )
+
+    topic = Column(
+        String(255),
+        nullable=False
+    )
+
+    mastery_score = Column(
+        Float,
+        nullable=False
+    )
+
+    source_type = Column(
+        String(50),
+        nullable=True,
+        default="test"
+    )
+
+    source_id = Column(
+        String(255),
+        nullable=True
+    )
+
+    timestamp = Column(
+        DateTime(timezone=True),
+        server_default=func.now()
+    )
+
+    student = relationship(
+        "Student"
+    )
+
+    mastery_record = relationship(
+        "StudentMastery"
+    )
+
+    # ============================================================
+# REVISION SCHEDULE MODELS
+# ============================================================
+
+class RevisionSchedule(Base):
+    """Current SM-2 scheduling state for one (student, subject, topic)."""
+    __tablename__ = "revision_schedules"
+
+    id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+        index=True
+    )
+
+    student_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("students.student_id"),
+        nullable=False,
+        index=True
+    )
+
+    subject = Column(String, nullable=False)
+    topic = Column(String, nullable=False)
+
+    # Extra revision fields
+    struggle_score = Column(Float, nullable=False, default=0.0)
+    priority = Column(String(50), nullable=False, default="Medium")
+    estimated_minutes = Column(Integer, nullable=False, default=15)
+    status = Column(String(50), nullable=False, default="PENDING")
+
+    # SM-2 state
+    repetition_number = Column(Integer, nullable=False, default=0)
+    easiness_factor = Column(Float, nullable=False, default=2.5)
+    interval_days = Column(Integer, nullable=False, default=0)
+    next_review_date = Column(Date, nullable=False, default=date.today)
+    last_reviewed_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow
+    )
+
+    history = relationship(
+        "RevisionHistory",
+        back_populates="schedule",
+        cascade="all, delete-orphan",
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "student_id",
+            "subject",
+            "topic",
+            name="uq_student_subject_topic"
+        ),
+    )
+
+
+class RevisionHistory(Base):
+    """Append-only log of every revision review."""
+    __tablename__ = "revision_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    schedule_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("revision_schedules.id"),
+        nullable=False,
+        index=True
+    )
+
+    quality = Column(Integer, nullable=False)
+    was_success = Column(Boolean, nullable=False)
+
+    # State before review
+    easiness_factor_before = Column(Float, nullable=False)
+    interval_days_before = Column(Integer, nullable=False)
+    repetition_number_before = Column(Integer, nullable=False)
+
+    # State after review
+    easiness_factor_after = Column(Float, nullable=False)
+    interval_days_after = Column(Integer, nullable=False)
+    repetition_number_after = Column(Integer, nullable=False)
+
+    reviewed_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False
+    )
+
+    schedule = relationship(
+        "RevisionSchedule",
+        back_populates="history"
+    )
+
+
+class StudentRevisionSettings(Base):
+    __tablename__ = "student_revision_settings"
+
+    student_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("students.student_id", ondelete="CASCADE"),
+        primary_key=True
+    )
+
+    max_daily_minutes = Column(
+        Integer,
+        default=60,
+        nullable=False
+    )
