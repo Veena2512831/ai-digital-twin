@@ -51,6 +51,7 @@ def process_pdf_task(
     file_path: str,
     filename: str,
     student_id: str,
+    subject: str,
 ):
     """
     Complete PDF processing pipeline:
@@ -64,53 +65,95 @@ def process_pdf_task(
     Embedding generation
       ↓
     PostgreSQL + pgvector
+
+    Subject is provided manually by the user.
     """
 
     db = SessionLocal()
 
     try:
+
         print("=" * 60)
         print("[Worker] PDF processing started")
         print(f"[Worker] File: {filename}")
         print(f"[Worker] Student ID: {student_id}")
+        print(f"[Worker] Subject: {subject}")
 
-        # --------------------------------------------------
+        # ----------------------------------------------------
         # 1. Validate student ID
-        # --------------------------------------------------
+        # ----------------------------------------------------
 
         try:
-            student_uuid = uuid.UUID(student_id)
-        except (ValueError, AttributeError):
+
+            student_uuid = uuid.UUID(
+                student_id
+            )
+
+        except (
+            ValueError,
+            AttributeError,
+        ):
+
             raise ValueError(
                 f"Invalid student_id: {student_id}"
             )
 
-        # --------------------------------------------------
-        # 2. Read PDF
-        # --------------------------------------------------
+        # ----------------------------------------------------
+        # 2. Validate subject
+        # ----------------------------------------------------
+
+        if not subject or not subject.strip():
+
+            raise ValueError(
+                "Subject is required."
+            )
+
+        subject = subject.strip()
+
+        # ----------------------------------------------------
+        # 3. Check PDF exists
+        # ----------------------------------------------------
 
         if not os.path.exists(file_path):
+
             raise FileNotFoundError(
                 f"PDF file not found: {file_path}"
             )
 
-        with open(file_path, "rb") as f:
+        # ----------------------------------------------------
+        # 4. Read PDF
+        # ----------------------------------------------------
+
+        with open(
+            file_path,
+            "rb"
+        ) as f:
+
             pdf_bytes = f.read()
 
         if not pdf_bytes:
+
             raise ValueError(
                 "PDF file is empty."
             )
 
-        print("[Worker] PDF loaded successfully")
+        print(
+            "[Worker] PDF loaded successfully"
+        )
 
-        # --------------------------------------------------
-        # 3. Extract text
-        # --------------------------------------------------
+        # ----------------------------------------------------
+        # 5. Extract text / OCR
+        # ----------------------------------------------------
 
-        text = extract_text_from_pdf(pdf_bytes)
+        text = extract_text_from_pdf(
+            pdf_bytes
+        )
 
-        if not text or text.startswith("No extractable"):
+        if (
+            not text
+            or text.startswith("No extractable")
+        ):
+
             raise ValueError(
                 "No text could be extracted from the PDF."
             )
@@ -120,16 +163,18 @@ def process_pdf_task(
             f"{len(text)} characters"
         )
 
-        # --------------------------------------------------
-        # 4. Create document record
-        # --------------------------------------------------
+        # ----------------------------------------------------
+        # 6. Create document record
+        # ----------------------------------------------------
 
         document = Document(
             student_id=student_uuid,
             filename=filename,
+            subject=subject,
         )
 
         db.add(document)
+
         db.flush()
 
         print(
@@ -137,13 +182,19 @@ def process_pdf_task(
             f"{document.document_id}"
         )
 
-        # --------------------------------------------------
-        # 5. Chunk extracted text
-        # --------------------------------------------------
+        print(
+            f"[Worker] Subject saved: "
+            f"{document.subject}"
+        )
+
+        # ----------------------------------------------------
+        # 7. Chunk extracted text
+        # ----------------------------------------------------
 
         chunks = chunk_text(text)
 
         if not chunks:
+
             raise ValueError(
                 "No chunks were generated from the PDF."
             )
@@ -153,23 +204,29 @@ def process_pdf_task(
             f"{len(chunks)} chunks"
         )
 
-        # --------------------------------------------------
-        # 6. Generate embeddings
-        # --------------------------------------------------
+        # ----------------------------------------------------
+        # 8. Generate embeddings
+        # ----------------------------------------------------
 
-        embedding_service = get_embedding_service()
+        embedding_service = (
+            get_embedding_service()
+        )
 
         embeddings = (
             embedding_service
-            .generate_embeddings_batch(chunks)
+            .generate_embeddings_batch(
+                chunks
+            )
         )
 
         if not embeddings:
+
             raise ValueError(
                 "No embeddings were generated."
             )
 
         if len(embeddings) != len(chunks):
+
             raise ValueError(
                 "Number of embeddings does not match "
                 "number of chunks."
@@ -180,14 +237,15 @@ def process_pdf_task(
             f"{len(embeddings)} embeddings"
         )
 
-        # --------------------------------------------------
-        # 7. Store knowledge chunks
-        # --------------------------------------------------
+        # ----------------------------------------------------
+        # 9. Store knowledge chunks
+        # ----------------------------------------------------
 
         for chunk, embedding in zip(
             chunks,
             embeddings,
         ):
+
             knowledge_chunk = KnowledgeChunk(
                 student_id=student_uuid,
                 document_id=document.document_id,
@@ -196,11 +254,13 @@ def process_pdf_task(
                 embedding=embedding,
             )
 
-            db.add(knowledge_chunk)
+            db.add(
+                knowledge_chunk
+            )
 
-        # --------------------------------------------------
-        # 8. Commit database transaction
-        # --------------------------------------------------
+        # ----------------------------------------------------
+        # 10. Commit
+        # ----------------------------------------------------
 
         db.commit()
 
@@ -209,19 +269,28 @@ def process_pdf_task(
             f"{len(chunks)} knowledge chunks"
         )
 
-        print("[Worker] PDF processing completed")
+        print(
+            "[Worker] PDF processing completed"
+        )
+
         print("=" * 60)
 
         return {
             "status": "success",
             "filename": filename,
             "student_id": str(student_uuid),
-            "document_id": str(document.document_id),
+            "subject": subject,
+            "document_id": str(
+                document.document_id
+            ),
             "chunks_created": len(chunks),
-            "embeddings_created": len(embeddings),
+            "embeddings_created": len(
+                embeddings
+            ),
         }
 
     except Exception:
+
         db.rollback()
 
         logger.exception(
@@ -231,14 +300,17 @@ def process_pdf_task(
         raise
 
     finally:
+
         db.close()
 
-        # --------------------------------------------------
-        # 9. Delete temporary PDF
-        # --------------------------------------------------
+        # ----------------------------------------------------
+        # 11. Delete temporary PDF
+        # ----------------------------------------------------
 
         if os.path.exists(file_path):
+
             try:
+
                 os.remove(file_path)
 
                 print(
@@ -246,6 +318,7 @@ def process_pdf_task(
                 )
 
             except Exception as cleanup_error:
+
                 logger.warning(
                     "Could not delete temporary PDF: %s",
                     cleanup_error,

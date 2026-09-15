@@ -14,7 +14,7 @@ import {
 import {
   practiceQuestionBank,
 } from '../data/mockData.js'
-import VivaRoom from './VivaRoom'
+import VivaRoom from './VivaRoom.jsx'
 
 const API_URL = 'http://localhost:8000'
 
@@ -799,9 +799,6 @@ export default function TestPage() {
   const [documentsError, setDocumentsError] = useState('')
   const [generationError, setGenerationError] = useState('')
 
-  // True while we're waiting on POST /tests/generate to come back.
-  const [generatingSession, setGeneratingSession] = useState(false)
-
   const [
     questionCount,
     setQuestionCount,
@@ -1029,9 +1026,6 @@ export default function TestPage() {
       return
     }
 
-    // Show the "Generating session..." screen while we wait for the backend.
-    setGeneratingSession(true)
-
     try {
       const selectedSubjectNames = selectedDocuments.map((document) =>
         document.subject || document.filename?.replace(/\.pdf$/i, '') || 'Uploaded Notes'
@@ -1051,7 +1045,7 @@ export default function TestPage() {
           body: JSON.stringify({
             student_id: studentId,
             document_ids: selectedDocumentIds,
-            topic: topic,
+            topic,
             num_questions: questionCount,
           }),
         }
@@ -1106,8 +1100,6 @@ export default function TestPage() {
         error?.message ||
           'Unable to generate questions from the selected PDFs.'
       )
-    } finally {
-      setGeneratingSession(false)
     }
   }
 
@@ -1116,7 +1108,6 @@ export default function TestPage() {
     setMode(null)
     setSelectedSubjects([])
     setGenerationError('')
-    setGeneratingSession(false)
     setQuestionCount(10)
     setCustomGuidelines('')
     setQuestions([])
@@ -1297,109 +1288,23 @@ export default function TestPage() {
       ).length
     }, [transcript])
 
-  const handleMicClick = () => {
-    if (!questions.length) return
+  const handleVivaComplete = (completedTranscript) => {
+    const completedAt = Date.now()
 
-    if (micState === 'idle') {
-      setMicState('speaking')
+    const safeTranscript = Array.isArray(completedTranscript)
+      ? completedTranscript.filter((entry) => entry?.studentText)
+      : []
 
-      setTranscript((prev) => {
-        const questionIndex =
-          prev.length
-
-        const question =
-          questions[
-            questionIndex %
-              questions.length
-          ] ||
-          null
-
-        if (!question) return prev
-
-        return [
-          ...prev,
-          {
-            id: crypto.randomUUID(),
-
-            questionPreview:
-              question.question,
-
-            examinerText:
-              question.question,
-
-            studentText: null,
-
-            subjectName:
-              question.subjectName ||
-              'General',
-
-            category:
-              question.category ||
-              'General',
-
-            sourceLabel:
-              question.sourceLabel ||
-              'Generated',
-
-            sampleStudentResponse:
-              question.sampleStudentResponse ||
-              '',
-          },
-        ]
-      })
-    } else if (
-      micState === 'speaking'
-    ) {
-      setMicState('listening')
-    } else if (
-      micState === 'listening'
-    ) {
-      setMicState('idle')
-
-      setTranscript((prev) =>
-        prev.map(
-          (entry, index) => {
-            if (
-              index ===
-              prev.length - 1
-            ) {
-              return {
-                ...entry,
-                studentText:
-                  entry.sampleStudentResponse ||
-                  'Student response recorded.',
-              }
-            }
-
-            return entry
-          }
-        )
-      )
-    }
-  }
-
-  const handleEndViva = () => {
-    const completedAt =
-      Date.now()
-
-    const completedTranscript =
-      transcript.filter(
-        (entry) =>
-          entry.studentText !== null
-      )
-
-    const result =
-      createVivaResults(
-        completedTranscript,
-        sessionStartedAt,
-        completedAt,
-        questions.length
-      )
-
-    setVivaResults(result)
-    setSessionCompletedAt(
-      completedAt
+    const result = createVivaResults(
+      safeTranscript,
+      sessionStartedAt,
+      completedAt,
+      questions.length
     )
+
+    setTranscript(safeTranscript)
+    setVivaResults(result)
+    setSessionCompletedAt(completedAt)
     setSessionState('results')
   }
 
@@ -1872,57 +1777,19 @@ export default function TestPage() {
                 !mode ||
                 documentsLoading ||
                 uploadedDocuments.length === 0 ||
-                selectedSubjects.length === 0 ||
-                generatingSession
+                selectedSubjects.length === 0
               }
               style={{
                 borderRadius: 18,
                 minHeight: 56,
               }}
             >
-              {generatingSession ? 'Generating...' : 'Initialize Session'}
+              Initialize Session
             </Button>
           </Stack>
         </Card>
       </Col>
     </Row>
-  )
-
-  const generatingView = (
-    <Card className="hero-shell p-5 text-center">
-      <div className="d-flex flex-column align-items-center gap-3">
-        <div
-          className="spinner-border"
-          role="status"
-          style={{
-            color: '#38bdf8',
-            width: 48,
-            height: 48,
-          }}
-        >
-          <span className="visually-hidden">Loading...</span>
-        </div>
-
-        <h3
-          className="m-0 fw-semibold"
-          style={{ color: '#f8fafc' }}
-        >
-          Generating your session...
-        </h3>
-
-        <p
-          className="m-0"
-          style={{
-            color: '#8a94a6',
-            maxWidth: 420,
-          }}
-        >
-          We're pulling content from your selected PDFs and building{' '}
-          {questionCount} {mode === 'viva' ? 'viva prompts' : 'quiz questions'}.
-          This usually takes a few seconds.
-        </p>
-      </div>
-    </Card>
   )
 
   const quizView =
@@ -2212,89 +2079,6 @@ export default function TestPage() {
         >
           Return to Home
         </Button>
-      </Card>
-    )
-
-  const vivaView = questions && questions.length > 0 ? (
-    <div className="d-flex flex-column gap-4">
-      <div className="hero-shell p-4 p-xl-5 d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3 gap-lg-4">
-        <div>
-          <div
-            className="text-uppercase small mb-2"
-            style={{
-              letterSpacing: '0.16em',
-              color: '#8a94a6',
-            }}
-          >
-            Viva Mode
-          </div>
-
-          <h2
-            className="m-0 fw-semibold"
-            style={{
-              fontSize: 34,
-              color: '#f8fafc',
-            }}
-          >
-            {completedExchangesCount} of {questions.length} exchanges completed
-          </h2>
-        </div>
-
-        <div className="d-flex flex-column align-items-lg-end gap-2">
-          <Badge className="summary-badge rounded-pill px-3 py-2">
-            Timer {elapsedLabel}
-          </Badge>
-
-          <div style={{ color: '#8a94a6', fontSize: 13 }}>
-            Tap the mic to hear the next question, tap again to answer
-          </div>
-        </div>
-      </div>
-
-      <Card className="panel-surface p-4 p-xl-5 text-center">
-        <div className="mic-wrap mb-4">
-          <Button
-            type="button"
-            className={`mic-button ${micState}`}
-            onClick={handleMicClick}
-            disabled={!questions.length}
-          >
-            <i
-              className={`bi ${
-                micState === 'listening'
-                  ? 'bi-mic-fill'
-                  : micState === 'speaking'
-                  ? 'bi-volume-up-fill'
-                  : 'bi-mic'
-              }`}
-              aria-hidden="true"
-              style={{ fontSize: 40 }}
-            />
-          </Button>
-        </div>
-
-        <div
-          className="fw-semibold mb-2"
-          style={{ fontSize: 20, color: '#f8fafc' }}
-        >
-          {micState === 'idle'
-            ? 'Tap to hear the next question'
-            : micState === 'speaking'
-            ? 'Examiner is asking a question'
-            : 'Listening — tap again when you\'re done answering'}
-        </div>
-
-            <div className="dynamic-session-tip">
-              <div><i className="bi bi-lightning-charge-fill" /></div>
-              <p><strong>Keep going!</strong><br />Complete all questions for the best performance analysis.</p>
-            </div>
-          </Card>
-        </div>
-    ) : (
-      <Card className="panel-surface p-5 text-center">
-        <h4 style={{ color: '#f8fafc' }}>No quiz questions available</h4>
-        <p style={{ color: '#8a94a6' }}>Please return to setup and try again.</p>
-        <Button onClick={resetToSetup}>Return to Home</Button>
       </Card>
     )
 
@@ -2892,18 +2676,23 @@ export default function TestPage() {
           </div>
         ) : null}
 
-        {sessionState === 'setup' && generatingSession ? generatingView : null}
-        {sessionState === 'setup' && !generatingSession ? setupView : null}
+        {sessionState ===
+        'setup'
+          ? setupView
+          : null}
 
         {sessionState ===
         'quiz'
           ? quizView
           : null}
 
-        {sessionState ===
-        'viva'
-          ? vivaView
-          : null}
+        {sessionState === 'viva' ? (
+          <VivaRoom
+            questions={questions}
+            initialQuestionIndex={currentQuestionIndex}
+            onComplete={handleVivaComplete}
+          />
+        ) : null}
 
         {resultsView}
       </div>

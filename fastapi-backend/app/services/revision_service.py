@@ -1,20 +1,27 @@
 from datetime import date, datetime, timedelta, timezone
+
 from sqlalchemy.orm import Session
-import uuid
 
 from database.models import (
     RevisionSchedule,
     StudentRevisionSettings,
     StudentMastery,
-    StudentMasteryHistory
+    StudentMasteryHistory,
 )
+
 from app.services.struggle_service import get_top_struggles
+
 
 # ============================================================
 # SM-2 SPACED REPETITION ALGORITHM
 # ============================================================
 
-def calculate_sm2(repetition: int, ease_factor: float, interval_days: int, quality: int):
+def calculate_sm2(
+    repetition: int,
+    ease_factor: float,
+    interval_days: int,
+    quality: int,
+):
     """
     SuperMemo-2 (SM-2) Spaced Repetition Algorithm.
 
@@ -26,72 +33,122 @@ def calculate_sm2(repetition: int, ease_factor: float, interval_days: int, quali
     1: Incorrect response; correct answer remembered
     0: Complete blackout
 
-    Returns: (new_repetition, new_ease_factor, new_interval_days)
+    Returns:
+        (new_repetition, new_ease_factor, new_interval_days)
     """
+
     quality = max(0, min(5, int(quality)))
 
-    # Ease factor formula
-    new_ef = ease_factor + (0.1 - (5 - quality) * (0.08 + (5 - quality) * 0.02))
+    # Calculate new ease factor
+    new_ef = ease_factor + (
+        0.1
+        - (5 - quality) * (0.08 + (5 - quality) * 0.02)
+    )
+
+    # SM-2 minimum ease factor
     if new_ef < 1.3:
         new_ef = 1.3
+
     new_ef = round(new_ef, 3)
 
     if quality < 3:
-        # Failed review: reset repetitions and schedule for immediate review (1 day)
+        # Failed review
         new_repetition = 0
         new_interval = 1
+
     else:
         # Successful review
         if repetition == 0:
             new_interval = 1
+
         elif repetition == 1:
             new_interval = 6
+
         else:
             new_interval = round(interval_days * new_ef)
+
         new_repetition = repetition + 1
 
     return new_repetition, new_ef, max(1, new_interval)
 
 
-def determine_priority(struggle_score: float, is_overdue: bool = False) -> str:
+# ============================================================
+# PRIORITY & STUDY TIME
+# ============================================================
+
+def determine_priority(
+    struggle_score: float,
+    is_overdue: bool = False,
+) -> str:
     """
     Assign priority level to a revision topic.
     """
+
     if struggle_score >= 1.0 or is_overdue:
         return "HIGH"
+
     elif struggle_score >= 0.5:
         return "MEDIUM"
+
     else:
         return "LOW"
 
 
-def estimate_study_minutes(struggle_score: float, syllabus_weight: float = 1.0) -> int:
+def estimate_study_minutes(
+    struggle_score: float,
+    syllabus_weight: float = 1.0,
+) -> int:
     """
-    Estimate study duration in minutes for a topic based on struggle score & weight.
-    Range: 10 to 30 minutes (default 15).
+    Estimate study duration in minutes.
+
+    Range:
+        Minimum = 10 minutes
+        Maximum = 30 minutes
+        Default = 15 minutes
     """
+
     base_mins = 15
-    adjusted = base_mins * (1.0 + (struggle_score * 0.5)) * syllabus_weight
-    return min(30, max(10, int(round(adjusted))))
+
+    adjusted = (
+        base_mins
+        * (1.0 + (struggle_score * 0.5))
+        * syllabus_weight
+    )
+
+    return min(
+        30,
+        max(10, int(round(adjusted))),
+    )
 
 
 # ============================================================
-# WORKLOAD SETTINGS & REVISION PLAN GENERATOR
+# REVISION SETTINGS
 # ============================================================
 
-def get_or_create_settings(db: Session, student_id: str) -> StudentRevisionSettings:
+def get_or_create_settings(
+    db: Session,
+    student_id: str,
+) -> StudentRevisionSettings:
     """
-    Get student's revision settings (e.g., max daily minutes) or create default.
+    Get student's revision settings.
+
+    If settings do not exist, create default settings.
     """
-    settings = db.query(StudentRevisionSettings).filter(
-        StudentRevisionSettings.student_id == student_id
-    ).first()
+
+    settings = (
+        db.query(StudentRevisionSettings)
+        .filter(
+            StudentRevisionSettings.student_id == student_id
+        )
+        .first()
+    )
 
     if not settings:
         settings = StudentRevisionSettings(
             student_id=student_id,
-            max_daily_minutes=60
+            max_daily_minutes=60,
         )
+
         db.add(settings)
         db.commit()
         db.refresh(settings)
@@ -99,45 +156,105 @@ def get_or_create_settings(db: Session, student_id: str) -> StudentRevisionSetti
     return settings
 
 
-def sync_struggles_to_revision_schedule(db: Session, student_id: str):
+# ============================================================
+# SYNC STRUGGLES TO REVISION SCHEDULE
+# ============================================================
+
+def sync_struggles_to_revision_schedule(
+    db: Session,
+    student_id: str,
+):
     """
-    Fetch weak/struggling topics from Struggle Predictor
-    and synchronize them with the RevisionSchedule.
+    Fetch weak/struggling topics from the Struggle Predictor
+    and synchronize them with RevisionSchedule.
     """
+
     today = date.today()
 
-    # 1. Fetch struggling topics from Struggle Predictor
-    struggles = get_top_struggles(db, student_id, top_n=20)
+    # --------------------------------------------------------
+    # Get struggling topics
+    # --------------------------------------------------------
 
-    # If student has no recorded struggles yet, also check StudentMastery
+    struggles = get_top_struggles(
+        db,
+        student_id,
+        top_n=20,
+    )
+
+    # --------------------------------------------------------
+    # Fallback to StudentMastery
+    # --------------------------------------------------------
+
     if not struggles:
-        mastery_records = db.query(StudentMastery).filter(
-            StudentMastery.student_id == student_id
-        ).all()
+
+        mastery_records = (
+            db.query(StudentMastery)
+            .filter(
+                StudentMastery.student_id == student_id
+            )
+            .all()
+        )
+
         for record in mastery_records:
-            struggles.append({
-                "topic": record.topic,
-                "subject": record.subject,
-                "struggle_score": round((1.0 - record.mastery_score), 4),
-                "syllabus_weight": 1.0
-            })
+
+            struggles.append(
+                {
+                    "topic": record.topic,
+                    "subject": record.subject,
+                    "struggle_score": round(
+                        1.0 - record.mastery_score,
+                        4,
+                    ),
+                    "syllabus_weight": 1.0,
+                }
+            )
+
+    # --------------------------------------------------------
+    # Create/update revision schedules
+    # --------------------------------------------------------
 
     for item in struggles:
+
         topic_name = item["topic"]
         subject_name = item["subject"]
-        struggle_score = float(item.get("struggle_score", 0.5))
-        syllabus_weight = float(item.get("syllabus_weight", 1.0))
 
-        # Check existing revision schedule entry
-        existing = db.query(RevisionSchedule).filter(
-            RevisionSchedule.student_id == student_id,
-            RevisionSchedule.topic == topic_name
-        ).first()
+        struggle_score = float(
+            item.get("struggle_score", 0.5)
+        )
 
-        estimated_mins = estimate_study_minutes(struggle_score, syllabus_weight)
+        syllabus_weight = float(
+            item.get("syllabus_weight", 1.0)
+        )
+
+        # ----------------------------------------------------
+        # Find existing schedule
+        # ----------------------------------------------------
+
+        existing = (
+            db.query(RevisionSchedule)
+            .filter(
+                RevisionSchedule.student_id == student_id,
+                RevisionSchedule.topic == topic_name,
+            )
+            .first()
+        )
+
+        estimated_mins = estimate_study_minutes(
+            struggle_score,
+            syllabus_weight,
+        )
+
+        # ----------------------------------------------------
+        # Create new schedule
+        # ----------------------------------------------------
 
         if not existing:
-            priority = determine_priority(struggle_score, is_overdue=True)
+
+            priority = determine_priority(
+                struggle_score,
+                is_overdue=True,
+            )
+
             new_schedule = RevisionSchedule(
                 student_id=student_id,
                 subject=subject_name,
@@ -149,101 +266,245 @@ def sync_struggles_to_revision_schedule(db: Session, student_id: str):
                 interval_days=1,
                 estimated_minutes=estimated_mins,
                 next_review_date=today,
-                status="PENDING"
+                status="PENDING",
             )
+
             db.add(new_schedule)
+
+        # ----------------------------------------------------
+        # Update existing schedule
+        # ----------------------------------------------------
+
         else:
-            # Update existing topic struggle score & priority
+
             existing.struggle_score = struggle_score
             existing.subject = subject_name
             existing.estimated_minutes = estimated_mins
 
-            is_overdue = (existing.scheduled_date <= today and existing.status == "PENDING")
-            existing.priority = determine_priority(struggle_score, is_overdue)
+            # IMPORTANT:
+            # Model uses next_review_date, not scheduled_date
+            is_overdue = (
+                existing.next_review_date <= today
+                and existing.status == "PENDING"
+            )
 
-            # If task was scheduled today or earlier and is due, ensure status is PENDING if not completed today
-            if existing.scheduled_date <= today and existing.status != "COMPLETED":
+            existing.priority = determine_priority(
+                struggle_score,
+                is_overdue,
+            )
+
+            # If task is due and not completed,
+            # keep it pending.
+            if (
+                existing.next_review_date <= today
+                and existing.status != "COMPLETED"
+            ):
                 existing.status = "PENDING"
 
     db.commit()
 
 
-def balance_workload(db: Session, student_id: str):
+# ============================================================
+# WORKLOAD BALANCING
+# ============================================================
+
+def balance_workload(
+    db: Session,
+    student_id: str,
+):
     """
-    Workload Balancing Algorithm:
-    Ensures total estimated study minutes per date does not exceed student's max_daily_minutes.
-    Redistributes lower-priority / non-overdue tasks to future days.
+    Ensure total estimated study time per day does not
+    exceed student's maximum daily study time.
+
+    Lower-priority tasks are moved to future days when
+    necessary.
     """
-    settings = get_or_create_settings(db, student_id)
+
+    settings = get_or_create_settings(
+        db,
+        student_id,
+    )
+
     max_daily_mins = settings.max_daily_minutes
     today = date.today()
 
-    # Get all pending revision tasks for the student
-    pending_tasks = db.query(RevisionSchedule).filter(
-        RevisionSchedule.student_id == student_id,
-        RevisionSchedule.status == "PENDING"
-    ).order_by(RevisionSchedule.next_review_date.asc(), RevisionSchedule.struggle_score.desc()).all()
+    # --------------------------------------------------------
+    # Get pending tasks
+    # --------------------------------------------------------
+
+    pending_tasks = (
+        db.query(RevisionSchedule)
+        .filter(
+            RevisionSchedule.student_id == student_id,
+            RevisionSchedule.status == "PENDING",
+        )
+        .order_by(
+            RevisionSchedule.next_review_date.asc(),
+            RevisionSchedule.struggle_score.desc(),
+        )
+        .all()
+    )
 
     if not pending_tasks:
         return
 
-    # Track daily workload minutes per date
+    # --------------------------------------------------------
+    # Track workload for each date
+    # --------------------------------------------------------
+
     daily_workload = {}
 
     for task in pending_tasks:
-        # Move overdue past dates to today for balancing
-        curr_date = max(today, task.next_review_date)
 
-        # Spreading loop: find earliest date starting from curr_date that can fit task
+        # Move overdue tasks to today
+        curr_date = max(
+            today,
+            task.next_review_date,
+        )
+
         target_date = curr_date
+
+        # ----------------------------------------------------
+        # Find a date where task fits
+        # ----------------------------------------------------
+
         while True:
-            current_mins = daily_workload.get(target_date, 0)
-            if current_mins + task.estimated_minutes <= max_daily_mins or target_date > curr_date + timedelta(days=14):
-                daily_workload[target_date] = current_mins + task.estimated_minutes
+
+            current_mins = daily_workload.get(
+                target_date,
+                0,
+            )
+
+            if (
+                current_mins + task.estimated_minutes
+                <= max_daily_mins
+                or target_date > curr_date + timedelta(days=14)
+            ):
+
+                daily_workload[target_date] = (
+                    current_mins
+                    + task.estimated_minutes
+                )
+
                 task.next_review_date = target_date
+
                 break
+
             target_date += timedelta(days=1)
 
     db.commit()
 
 
-def get_revision_plan(db: Session, student_id: str):
-    """
-    Sync struggles, balance workload, and return full revision plan.
-    """
-    sync_struggles_to_revision_schedule(db, student_id)
-    balance_workload(db, student_id)
+# ============================================================
+# GET REVISION PLAN
+# ============================================================
 
-    settings = get_or_create_settings(db, student_id)
+def get_revision_plan(
+    db: Session,
+    student_id: str,
+):
+    """
+    Sync struggles, balance workload,
+    and return the complete revision plan.
+    """
+
+    # First sync struggles
+    sync_struggles_to_revision_schedule(
+        db,
+        student_id,
+    )
+
+    # Then balance workload
+    balance_workload(
+        db,
+        student_id,
+    )
+
+    settings = get_or_create_settings(
+        db,
+        student_id,
+    )
+
     today = date.today()
 
-    tasks = db.query(RevisionSchedule).filter(
-        RevisionSchedule.student_id == student_id
-    ).order_by(RevisionSchedule.next_review_date.asc(), RevisionSchedule.struggle_score.desc()).all()
+    # --------------------------------------------------------
+    # Get all tasks
+    # --------------------------------------------------------
 
-    today_tasks = [t for t in tasks if t.next_review_date == today and t.status == "PENDING"]
-    completed_today = [t for t in tasks if t.next_review_date == today and t.status == "COMPLETED"]
-    upcoming_tasks = [t for t in tasks if t.next_review_date > today]
+    tasks = (
+        db.query(RevisionSchedule)
+        .filter(
+            RevisionSchedule.student_id == student_id
+        )
+        .order_by(
+            RevisionSchedule.next_review_date.asc(),
+            RevisionSchedule.struggle_score.desc(),
+        )
+        .all()
+    )
 
-    today_minutes = sum(t.estimated_minutes for t in today_tasks)
+    # --------------------------------------------------------
+    # Separate tasks
+    # --------------------------------------------------------
 
-    # Format result tasks
-    def format_task(t):
+    today_tasks = [
+        task
+        for task in tasks
+        if (
+            task.next_review_date == today
+            and task.status == "PENDING"
+        )
+    ]
+
+    completed_today = [
+        task
+        for task in tasks
+        if (
+            task.next_review_date == today
+            and task.status == "COMPLETED"
+        )
+    ]
+
+    upcoming_tasks = [
+        task
+        for task in tasks
+        if task.next_review_date > today
+    ]
+
+    today_minutes = sum(
+        task.estimated_minutes
+        for task in today_tasks
+    )
+
+    # --------------------------------------------------------
+    # Format task
+    # --------------------------------------------------------
+
+    def format_task(task):
+
         return {
-            "schedule_id": str(t.id),
-            "student_id": str(t.student_id),
-            "subject": t.subject,
-            "topic": t.topic,
-            "struggle_score": t.struggle_score,
-            "priority": t.priority,
-            "repetition": t.repetition_number,
-            "ease_factor": t.easiness_factor,
-            "interval_days": t.interval_days,
-            "estimated_minutes": t.estimated_minutes,
-            "scheduled_date": t.next_review_date.isoformat(),
-            "status": t.status,
-            "last_reviewed_at": t.last_reviewed_at.isoformat() if t.last_reviewed_at else None
+            "schedule_id": str(task.id),
+            "student_id": str(task.student_id),
+            "subject": task.subject,
+            "topic": task.topic,
+            "struggle_score": task.struggle_score,
+            "priority": task.priority,
+            "repetition": task.repetition_number,
+            "ease_factor": task.easiness_factor,
+            "interval_days": task.interval_days,
+            "estimated_minutes": task.estimated_minutes,
+            "scheduled_date": task.next_review_date.isoformat(),
+            "status": task.status,
+            "last_reviewed_at": (
+                task.last_reviewed_at.isoformat()
+                if task.last_reviewed_at
+                else None
+            ),
         }
+
+    # --------------------------------------------------------
+    # Return revision plan
+    # --------------------------------------------------------
 
     return {
         "student_id": student_id,
@@ -251,62 +512,145 @@ def get_revision_plan(db: Session, student_id: str):
         "today_minutes": today_minutes,
         "today_count": len(today_tasks),
         "completed_today_count": len(completed_today),
-        "today_tasks": [format_task(t) for t in today_tasks],
-        "completed_today": [format_task(t) for t in completed_today],
-        "upcoming_tasks": [format_task(t) for t in upcoming_tasks[:10]],
-        "all_tasks": [format_task(t) for t in tasks]
+
+        "today_tasks": [
+            format_task(task)
+            for task in today_tasks
+        ],
+
+        "completed_today": [
+            format_task(task)
+            for task in completed_today
+        ],
+
+        "upcoming_tasks": [
+            format_task(task)
+            for task in upcoming_tasks[:10]
+        ],
+
+        "all_tasks": [
+            format_task(task)
+            for task in tasks
+        ],
     }
 
 
-def record_topic_review(db: Session, student_id: str, schedule_id: str, quality_score: int):
+# ============================================================
+# RECORD TOPIC REVIEW
+# ============================================================
+
+def record_topic_review(
+    db: Session,
+    student_id: str,
+    schedule_id: str,
+    quality_score: int,
+):
     """
-    Execute SM-2 review score update for a topic task:
-    1. Recalculate repetition, ease factor, interval
-    2. Set next review date
-    3. Update student's topic mastery score
+    Execute SM-2 review for a revision task.
+
+    Steps:
+    1. Calculate new SM-2 values.
+    2. Update repetition.
+    3. Update ease factor.
+    4. Update interval.
+    5. Schedule next review.
+    6. Mark current review as completed.
+    7. Update StudentMastery.
+    8. Clear struggle cache.
     """
-    schedule = db.query(RevisionSchedule).filter(
-        RevisionSchedule.id == schedule_id,
-        RevisionSchedule.student_id == student_id
-    ).first()
+
+    # --------------------------------------------------------
+    # Find revision schedule
+    # --------------------------------------------------------
+
+    schedule = (
+        db.query(RevisionSchedule)
+        .filter(
+            RevisionSchedule.id == schedule_id,
+            RevisionSchedule.student_id == student_id,
+        )
+        .first()
+    )
 
     if not schedule:
-        raise ValueError("Revision task not found.")
+        raise ValueError(
+            "Revision task not found."
+        )
+
+    # --------------------------------------------------------
+    # Calculate SM-2
+    # --------------------------------------------------------
 
     new_rep, new_ef, new_interval = calculate_sm2(
         repetition=schedule.repetition_number,
         ease_factor=schedule.easiness_factor,
         interval_days=schedule.interval_days,
-        quality=quality_score
+        quality=quality_score,
     )
 
     now_time = datetime.now(timezone.utc)
     today = date.today()
+
+    # --------------------------------------------------------
+    # Update schedule
+    # --------------------------------------------------------
 
     schedule.repetition_number = new_rep
     schedule.easiness_factor = new_ef
     schedule.interval_days = new_interval
     schedule.last_reviewed_at = now_time
 
-    # Schedule next review date based on new interval
-    schedule.scheduled_date = today + timedelta(days=new_interval)
+    # IMPORTANT:
+    # Use new_interval, not undefined interval_days
+    schedule.next_review_date = (
+        today + timedelta(days=new_interval)
+    )
+
     schedule.status = "COMPLETED"
 
-    # Also update StudentMastery
-    mastery = db.query(StudentMastery).filter(
-        StudentMastery.student_id == student_id,
-        StudentMastery.topic == schedule.topic
-    ).first()
+    # --------------------------------------------------------
+    # Update StudentMastery
+    # --------------------------------------------------------
+
+    mastery = (
+        db.query(StudentMastery)
+        .filter(
+            StudentMastery.student_id == student_id,
+            StudentMastery.topic == schedule.topic,
+        )
+        .first()
+    )
 
     if mastery:
+
         questions_added = 5
-        correct_added = 5 if quality_score >= 3 else max(1, quality_score)
 
-        mastery.total_questions = (mastery.total_questions or 0) + questions_added
-        mastery.correct_answers = (mastery.correct_answers or 0) + correct_added
-        mastery.mastery_score = round(mastery.correct_answers / mastery.total_questions, 4)
+        if quality_score >= 3:
+            correct_added = 5
+        else:
+            correct_added = max(
+                1,
+                quality_score,
+            )
 
-        # Log history
+        mastery.total_questions = (
+            mastery.total_questions or 0
+        ) + questions_added
+
+        mastery.correct_answers = (
+            mastery.correct_answers or 0
+        ) + correct_added
+
+        mastery.mastery_score = round(
+            mastery.correct_answers
+            / mastery.total_questions,
+            4,
+        )
+
+        # ----------------------------------------------------
+        # Save mastery history
+        # ----------------------------------------------------
+
         history = StudentMasteryHistory(
             student_id=student_id,
             mastery_id=mastery.mastery_id,
@@ -314,16 +658,29 @@ def record_topic_review(db: Session, student_id: str, schedule_id: str, quality_
             topic=mastery.topic,
             mastery_score=mastery.mastery_score,
             source_type="revision_sm2",
-            source_id=str(schedule_id)
+            source_id=str(schedule_id),
         )
+
         db.add(history)
 
-    # Invalidate Redis cache if available
+    # --------------------------------------------------------
+    # Clear struggle cache
+    # --------------------------------------------------------
+
     try:
+
         from app.services.mastery_service import redis_client
-        redis_client.delete(f"struggles:{student_id}")
+
+        redis_client.delete(
+            f"struggles:{student_id}"
+        )
+
     except Exception:
         pass
+
+    # --------------------------------------------------------
+    # Save changes
+    # --------------------------------------------------------
 
     db.commit()
     db.refresh(schedule)
@@ -331,14 +688,38 @@ def record_topic_review(db: Session, student_id: str, schedule_id: str, quality_
     return schedule
 
 
-def update_revision_settings(db: Session, student_id: str, max_daily_minutes: int):
+# ============================================================
+# UPDATE REVISION SETTINGS
+# ============================================================
+
+def update_revision_settings(
+    db: Session,
+    student_id: str,
+    max_daily_minutes: int,
+):
     """
-    Update student's daily workload capacity (in minutes) and rebalance.
+    Update student's daily workload capacity
+    and rebalance the revision plan.
     """
-    settings = get_or_create_settings(db, student_id)
-    settings.max_daily_minutes = max(15, min(240, int(max_daily_minutes)))
+
+    settings = get_or_create_settings(
+        db,
+        student_id,
+    )
+
+    # Keep allowed range between 15 and 240 minutes
+    settings.max_daily_minutes = max(
+        15,
+        min(240, int(max_daily_minutes)),
+    )
+
     db.commit()
     db.refresh(settings)
 
-    balance_workload(db, student_id)
+    # Rebalance existing tasks
+    balance_workload(
+        db,
+        student_id,
+    )
+
     return settings

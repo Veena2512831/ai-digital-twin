@@ -3,24 +3,10 @@ from math import exp
 
 from sqlalchemy.orm import Session
 
-from database.models import StudentMastery
+from database.models import StudentMastery, SyllabusWeight
 
 
-# ============================================================
-# SYLLABUS WEIGHTS
-# ============================================================
-
-# Temporary syllabus weights.
-# These can later be moved to a database table.
-SYLLABUS_WEIGHTS = {
-    "Variables": 1.0,
-    "Functions": 1.2,
-    "Loops": 1.1,
-    "OOP": 1.5,
-    "Recursion": 1.8,
-    "Data Structures": 1.7,
-    "Algorithms": 1.8,
-}
+DEFAULT_SYLLABUS_WEIGHT = 1.0
 
 
 # ============================================================
@@ -37,14 +23,12 @@ def calculate_time_decay(last_practiced_at):
     -> higher struggle score.
     """
 
-    # If there is no practice/update date,
-    # consider the topic neglected.
     if not last_practiced_at:
         return 1.5
 
     now = datetime.now(timezone.utc)
 
-    # Handle timezone-naive datetime.
+    # Handle timezone-naive datetime
     if last_practiced_at.tzinfo is None:
         last_practiced_at = last_practiced_at.replace(
             tzinfo=timezone.utc
@@ -54,18 +38,14 @@ def calculate_time_decay(last_practiced_at):
         now - last_practiced_at
     ).total_seconds() / 86400
 
-    # Prevent negative values if the database
-    # timestamp is slightly ahead of current time.
+    # Prevent negative values
     days_since_practice = max(
         0,
         days_since_practice
     )
 
-    # Time decay:
-    #
     # 0 days  -> approximately 1.0
     # More days -> approaches 2.0
-    #
     decay = (
         1
         + (
@@ -89,19 +69,24 @@ def calculate_struggle_score(
     time_decay,
 ):
     """
-    Struggle Score formula:
+    Struggle Score:
 
         (1 - Mastery)
         × Syllabus Weight
         × Time Decay
-
-    Mastery is expected to be between 0 and 1.
     """
 
-    # Keep mastery inside valid range.
     mastery = max(
         0.0,
         min(1.0, float(mastery))
+    )
+
+    syllabus_weight = float(
+        syllabus_weight
+    )
+
+    time_decay = float(
+        time_decay
     )
 
     weakness = 1 - mastery
@@ -125,21 +110,46 @@ def get_top_struggles(
     top_n=5,
 ):
     """
-    Get the student's mastery records,
+    Get student's mastery records,
     calculate struggle scores,
     rank them,
     and return Top N weak topics.
+
+    Syllabus weights are fetched dynamically
+    from the SyllabusWeight database table.
     """
 
-    from database.models import SyllabusWeight
-    weight_records = db.query(SyllabusWeight).all()
-    syllabus_weights_db = {w.topic: w.weight for w in weight_records}
+    # --------------------------------------------------------
+    # Load syllabus weights from database
+    # --------------------------------------------------------
+
+    weight_records = (
+        db.query(SyllabusWeight)
+        .all()
+    )
+
+    # Use BOTH subject and topic as the key.
+    #
+    # Example:
+    # ("Physics", "Waves") -> 1.5
+    # ("Mathematics", "Integration") -> 1.8
+    #
+    weight_lookup = {
+        (
+            row.subject,
+            row.topic
+        ): float(row.weight)
+        for row in weight_records
+    }
+
+    # --------------------------------------------------------
+    # Get student's mastery records
+    # --------------------------------------------------------
 
     records = (
         db.query(StudentMastery)
         .filter(
-            StudentMastery.student_id
-            == student_id
+            StudentMastery.student_id == student_id
         )
         .all()
     )
@@ -163,20 +173,18 @@ def get_top_struggles(
         # Syllabus Weight
         # ----------------------------------------------------
 
-        # Prioritize database weights, fallback to hardcoded if not present, then default to 1.0
-        syllabus_weight = syllabus_weights_db.get(
-            record.topic,
-            SYLLABUS_WEIGHTS.get(record.topic, 1.0)
+        syllabus_weight = weight_lookup.get(
+            (
+                record.subject,
+                record.topic
+            ),
+            DEFAULT_SYLLABUS_WEIGHT
         )
 
         # ----------------------------------------------------
         # Last Practice Time
         # ----------------------------------------------------
 
-        # Use updated_at if your model has it.
-        #
-        # If updated_at does not exist, fallback to
-        # created_at if available.
         last_practiced_at = getattr(
             record,
             "updated_at",
@@ -212,10 +220,13 @@ def get_top_struggles(
             {
                 "topic": record.topic,
                 "subject": record.subject,
-                "mastery": round(mastery, 4),
+                "mastery": round(
+                    mastery,
+                    4
+                ),
                 "mastery_percentage": round(
                     mastery * 100,
-                    2,
+                    2
                 ),
                 "syllabus_weight": syllabus_weight,
                 "time_decay": time_decay,
@@ -223,17 +234,17 @@ def get_top_struggles(
             }
         )
 
-    # ========================================================
-    # RANKING
-    # ========================================================
+    # --------------------------------------------------------
+    # Rank by highest struggle score
+    # --------------------------------------------------------
 
     struggles.sort(
         key=lambda item: item["struggle_score"],
         reverse=True,
     )
 
-    # ========================================================
-    # TOP N
-    # ========================================================
+    # --------------------------------------------------------
+    # Return Top N
+    # --------------------------------------------------------
 
     return struggles[:top_n]

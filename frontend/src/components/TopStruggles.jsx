@@ -1,3 +1,4 @@
+
 import React, {
   useContext,
   useEffect,
@@ -145,92 +146,101 @@ export default function TopStruggles() {
 
       <style>{`
         .top-struggles {
-          background: #1E3025;
-          border: 1px solid #34473A;
-          border-radius: 16px;
-          padding: 20px;
-          color: #EFE9DA;
-        }
+  background: #0F172A;
+  border: 1px solid #1e3a5f;
+  border-radius: 16px;
+  padding: 20px;
+  color: #ffffff;
+}
 
-        .top-struggles h3 {
-          margin: 0 0 18px;
-          font-size: 18px;
-          font-weight: 600;
-        }
+.top-struggles h3 {
+  margin: 0 0 18px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #ffffff;
+}
 
-        .top-struggles p {
-          color: #9FB0A0;
-          font-size: 14px;
-        }
+.top-struggles p {
+  color: #a0a0a0;
+  font-size: 14px;
+}
 
-        .struggle-list {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-        }
+.struggle-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
 
-        .struggle-item {
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 12px;
-          border-radius: 12px;
-          background: #24392C;
-          border: 1px solid #34473A;
-        }
+.struggle-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 12px;
+  background: linear-gradient(145deg, #16213e, #0f3460);
+  border: 1px solid #1e3a5f;
+}
 
-        .struggle-rank {
-          width: 28px;
-          height: 28px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border-radius: 50%;
-          background: #E0AE43;
-          color: #16241D;
-          font-weight: 700;
-          font-size: 12px;
-          flex-shrink: 0;
-        }
+.struggle-item:hover {
+  transform: translateY(-2px);
+  border-color: #3a6ea5;
+}
 
-        .struggle-info {
-          flex: 1;
-          min-width: 0;
-        }
+.struggle-rank {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #0f3460;
+  border: 1px solid #3a6ea5;
+  color: #ffffff;
+  font-weight: 700;
+  font-size: 12px;
+  flex-shrink: 0;
+}
 
-        .struggle-topic {
-          font-size: 14px;
-          font-weight: 600;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-        }
+.struggle-info {
+  flex: 1;
+  min-width: 0;
+}
 
-        .struggle-subject {
-          margin-top: 3px;
-          color: #9FB0A0;
-          font-size: 11px;
-        }
+.struggle-topic {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ffffff;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
-        .struggle-values {
-          text-align: right;
-          flex-shrink: 0;
-        }
+.struggle-subject {
+  margin-top: 3px;
+  color: #b8c4d9;
+  font-size: 11px;
+}
 
-        .struggle-score {
-          color: #E0AE43;
-          font-family: monospace;
-          font-size: 14px;
-          font-weight: 600;
-        }
+.struggle-values {
+  text-align: right;
+  flex-shrink: 0;
+}
 
-        .struggle-mastery {
-          color: #9FB0A0;
-          font-family: monospace;
-          font-size: 11px;
-          margin-top: 2px;
-        }
+.struggle-score {
+  color: #ffffff;
+  font-family: monospace;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.struggle-mastery {
+  color: #b8c4d9;
+  font-family: monospace;
+  font-size: 11px;
+  margin-top: 2px;
+}
       `}</style>
     </div>
   );
 }
+

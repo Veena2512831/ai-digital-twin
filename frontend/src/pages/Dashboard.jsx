@@ -1,48 +1,61 @@
-import React, { useContext } from 'react';
-import { Link } from 'react-router-dom';
-import TopStruggles from "../components/TopStruggles";
+
+import React, { useContext } from "react";
+import { Link } from "react-router-dom";
 import { AuthContext } from "../context/AuthContext";
+import TopStruggles from "../components/TopStruggles";
 
 export default function Dashboard() {
   const { user } = useContext(AuthContext);
 
   if (!user) {
-    return <div className="container py-4 text-light">Please log in to view your dashboard.</div>;
+    return (
+      <div className="container py-4 text-light">
+        Please log in to view your dashboard.
+      </div>
+    );
   }
 
   return (
     <div className="container py-4">
-      {/* Revision Planner Banner Widget */}
-      <div 
-        className="card bg-dark border-secondary p-4 mb-4 text-light shadow-lg"
-        style={{ 
+      {/* Payment / Pro Plan Card */}
+      <div
+        className="card border-0 shadow-lg mb-4"
+        style={{
+          backgroundColor: "#0F172A",
+          color: "white",
           borderRadius: "16px",
-          background: "linear-gradient(135deg, #1E293B 0%, #0F172A 100%)",
-          borderLeft: "5px solid #3B82F6" 
         }}
       >
-        <div className="d-flex flex-column flex-md-row justify-content-between align-items-md-center">
-          <div className="mb-3 mb-md-0">
-            <div className="d-flex align-items-center mb-1">
-              <span className="badge bg-primary text-white me-2">SM-2 Spaced Repetition</span>
-              <span className="text-success small fw-semibold">
-                <i className="bi bi-link-45deg me-1"></i> Connected to Struggle Predictor
-              </span>
-            </div>
-            <h3 className="fw-bold text-white mb-1">Daily Smart Revision Planner</h3>
-            <p className="text-muted mb-0 small">
-              Your struggling topics are automatically scheduled into balanced daily study tasks using SuperMemo-2.
-            </p>
-          </div>
+        <div className="card-body p-4">
+          <div className="row align-items-center">
+            <div className="col-md-8">
+              <h3 className="fw-bold mb-2">
+                🚀 AI Digital Twin Pro
+              </h3>
 
-          <div>
-            <Link to="/revision-planner" className="btn btn-primary px-4 py-2 rounded-pill fw-semibold shadow-sm">
-              <i className="bi bi-calendar-check-fill me-2"></i> Open Revision Planner
-            </Link>
+              <p className="text-light mb-2">
+                Unlock premium features and get a better
+                personalized learning experience.
+              </p>
+
+              <small className="text-secondary">
+                Pro Plan • ₹499
+              </small>
+            </div>
+
+            <div className="col-md-4 text-md-end mt-3 mt-md-0">
+              <Link
+                to="/payment"
+                className="btn btn-primary px-4 py-2"
+              >
+                Upgrade to Pro
+              </Link>
+            </div>
           </div>
         </div>
       </div>
 
+      {/* Existing Top Struggles */}
       <TopStruggles studentId={user.student_id} />
     </div>
   );

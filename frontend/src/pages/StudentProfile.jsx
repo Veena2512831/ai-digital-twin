@@ -1,3 +1,4 @@
+
 import { useContext, useEffect, useMemo, useState } from "react";
 import {
   Alert,
@@ -43,17 +44,6 @@ export default function StudentProfile() {
 
       const data = await response.json();
 
-      /*
-       * Backend may return:
-       *
-       * {
-       *   "mastery": [...]
-       * }
-       *
-       * OR directly:
-       *
-       * [...]
-       */
       const masteryData = Array.isArray(data)
         ? data
         : Array.isArray(data.mastery)
@@ -72,16 +62,10 @@ export default function StudentProfile() {
     }
   };
 
-  /*
-   * Initial load
-   */
   useEffect(() => {
     fetchMastery();
   }, [studentId]);
 
-  /*
-   * Refresh mastery when user comes back to this page/tab.
-   */
   useEffect(() => {
     const handleFocus = () => {
       fetchMastery();
@@ -94,9 +78,6 @@ export default function StudentProfile() {
     };
   }, [studentId]);
 
-  /*
-   * Group mastery by subject.
-   */
   const subjectSummary = useMemo(() => {
     const grouped = {};
 
@@ -114,9 +95,6 @@ export default function StudentProfile() {
   }, [mastery]);
 
   const getPercentage = (item) => {
-    /*
-     * Prefer the backend BKT percentage.
-     */
     if (item.mastery_percentage !== undefined) {
       return Number(item.mastery_percentage);
     }
@@ -133,9 +111,6 @@ export default function StudentProfile() {
       return Number(item.score) * 100;
     }
 
-    /*
-     * Fallback calculation.
-     */
     if (
       item.correct_answers !== undefined &&
       item.total_questions
@@ -162,13 +137,18 @@ export default function StudentProfile() {
         className="min-vh-100 d-flex justify-content-center align-items-center"
         style={{
           background: "#0F172A",
-          color: "#e2e8f0",
+          color: "#ffffff",
         }}
       >
         <div className="text-center">
           <Spinner animation="border" />
 
-          <div className="mt-3">
+          <div
+            className="mt-3"
+            style={{
+              color: "#b8c4d9",
+            }}
+          >
             Loading mastery profile...
           </div>
         </div>
@@ -181,7 +161,7 @@ export default function StudentProfile() {
       className="min-vh-100"
       style={{
         background: "#0F172A",
-        color: "#e2e8f0",
+        color: "#ffffff",
         padding: "32px",
       }}
     >
@@ -196,16 +176,19 @@ export default function StudentProfile() {
         <div
           className="mb-4 p-4"
           style={{
-            background: "#1E293B",
-            border: "1px solid #334155",
+            background:
+              "linear-gradient(145deg, #16213e, #0f3460)",
+            border: "1px solid #1e3a5f",
             borderRadius: "20px",
+            boxShadow:
+              "0 4px 15px rgba(0, 0, 0, 0.25)",
           }}
         >
           <div
             className="text-uppercase small mb-2"
             style={{
               letterSpacing: "0.15em",
-              color: "#8a94a6",
+              color: "#b8c4d9",
             }}
           >
             Student Profile
@@ -214,7 +197,7 @@ export default function StudentProfile() {
           <h1
             className="fw-semibold mb-2"
             style={{
-              color: "#f8fafc",
+              color: "#ffffff",
             }}
           >
             {user?.full_name ||
@@ -224,7 +207,7 @@ export default function StudentProfile() {
 
           <div
             style={{
-              color: "#94a3b8",
+              color: "#b8c4d9",
             }}
           >
             Topic-wise learning mastery
@@ -255,21 +238,28 @@ export default function StudentProfile() {
           <Card
             className="border-0 p-4 text-center"
             style={{
-              background: "#1E293B",
-              color: "#94a3b8",
+              background:
+                "linear-gradient(145deg, #16213e, #0f3460)",
+              border: "1px solid #1e3a5f",
+              color: "#b8c4d9",
               borderRadius: "18px",
             }}
           >
             <div
               style={{
                 fontSize: "18px",
-                color: "#e2e8f0",
+                color: "#ffffff",
               }}
             >
               No mastery data available yet.
             </div>
 
-            <div className="mt-2">
+            <div
+              className="mt-2"
+              style={{
+                color: "#b8c4d9",
+              }}
+            >
               Complete a test to generate your
               mastery scores.
             </div>
@@ -290,7 +280,7 @@ export default function StudentProfile() {
                 <h3
                   className="mb-0"
                   style={{
-                    color: "#f8fafc",
+                    color: "#ffffff",
                   }}
                 >
                   {subject}
@@ -299,9 +289,9 @@ export default function StudentProfile() {
                 <Badge
                   className="rounded-pill px-3 py-2"
                   style={{
-                    background: "#121212",
-                    border: "1px solid #334155",
-                    color: "#e2e8f0",
+                    background: "#16213e",
+                    border: "1px solid #1e3a5f",
+                    color: "#ffffff",
                   }}
                 >
                   {topics.length} topic
@@ -330,12 +320,15 @@ export default function StudentProfile() {
                       xl={4}
                     >
                       <Card
-                        className="h-100 border-0 p-4"
+                        className="h-100 border-0 p-4 mastery-topic-card"
                         style={{
-                          background: "#1E293B",
+                          background:
+                            "linear-gradient(145deg, #16213e, #0f3460)",
                           border:
-                            "1px solid #334155",
+                            "1px solid #1e3a5f",
                           borderRadius: "18px",
+                          transition:
+                            "transform 0.3s ease, box-shadow 0.3s ease, border-color 0.3s ease",
                         }}
                       >
                         {/* Topic + Percentage */}
@@ -345,7 +338,7 @@ export default function StudentProfile() {
                             <div
                               className="small text-uppercase mb-1"
                               style={{
-                                color: "#64748b",
+                                color: "#b8c4d9",
                                 letterSpacing:
                                   "0.1em",
                               }}
@@ -356,7 +349,7 @@ export default function StudentProfile() {
                             <h5
                               className="mb-0"
                               style={{
-                                color: "#f8fafc",
+                                color: "#ffffff",
                               }}
                             >
                               {item.topic ||
@@ -391,7 +384,8 @@ export default function StudentProfile() {
                           style={{
                             height: "10px",
                             background:
-                              "#0f172a",
+                              "#0F172A",
+                            borderRadius: "10px",
                           }}
                         />
 
@@ -400,7 +394,7 @@ export default function StudentProfile() {
                         <div
                           className="mt-3 d-flex justify-content-between"
                           style={{
-                            color: "#94a3b8",
+                            color: "#b8c4d9",
                             fontSize: "13px",
                           }}
                         >
@@ -422,7 +416,7 @@ export default function StudentProfile() {
                           <div
                             className="mt-2"
                             style={{
-                              color: "#64748b",
+                              color: "#8fa6c2",
                               fontSize: "12px",
                             }}
                           >
@@ -441,6 +435,20 @@ export default function StudentProfile() {
           )
         )}
       </div>
+
+      {/* ================= CARD HOVER ================= */}
+
+      <style>
+        {`
+          .mastery-topic-card:hover {
+            transform: translateY(-6px);
+            box-shadow:
+              0 10px 30px rgba(15, 52, 96, 0.6);
+            border-color: #3a6ea5 !important;
+          }
+        `}
+      </style>
     </div>
   );
 }
+
