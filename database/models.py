@@ -74,6 +74,16 @@ class Student(Base):
         nullable=True
     )
 
+    is_pro = Column(
+        Boolean,
+        default=False
+    )
+
+    pro_plan_expires_at = Column(
+        DateTime(timezone=True),
+        nullable=True
+    )
+
     created_at = Column(
         DateTime(timezone=True),
         server_default=func.now()
@@ -1394,3 +1404,34 @@ class StudentRevisionSettings(Base):
         default=60,
         nullable=False
     )
+
+# ============================================================
+# PAYMENT MODEL
+# ============================================================
+
+class Payment(Base):
+    __tablename__ = "payments"
+
+    payment_id = Column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4
+    )
+
+    student_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("students.student_id", ondelete="CASCADE")
+    )
+
+    razorpay_order_id = Column(String(255), unique=True, nullable=False)
+    razorpay_payment_id = Column(String(255))
+    razorpay_signature = Column(String(255))
+    
+    amount = Column(Integer, nullable=False)
+    currency = Column(String(10), nullable=False)
+    status = Column(String(50), nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    student = relationship("Student", backref="payments")

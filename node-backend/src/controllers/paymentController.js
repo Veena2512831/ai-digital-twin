@@ -165,7 +165,85 @@ const verifyPayment = async (req, res) => {
 };
 
 
+// ============================================================
+// RAZORPAY WEBHOOK HANDLER
+// ============================================================
+const handleWebhook = async (req, res) => {
+  try {
+    const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    const signature = req.headers['x-razorpay-signature'];
+    
+    if (!signature) {
+      return res.status(400).json({ success: false, message: 'Missing signature' });
+    }
+
+    const body = req.rawBody ? req.rawBody : JSON.stringify(req.body);
+    
+    const expectedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(body)
+      .digest('hex');
+
+    if (expectedSignature !== signature) {
+      return res.status(400).json({ success: false, message: 'Invalid webhook signature' });
+    }
+
+    const event = req.body;
+
+    if (event.event === 'payment.captured' || event.event === 'payment.authorized') {
+      const paymentEntity = event.payload.payment.entity;
+      const orderId = paymentEntity.order_id;
+      const paymentId = paymentEntity.id;
+      
+      const updateRes = await db.query(
+        `UPDATE payments
+         SET status = $1, razorpay_payment_id = $2, updated_at = NOW()
+         WHERE razorpay_order_id = $3
+         RETURNING student_id`,
+        ['paid', paymentId, orderId]
+      );
+      
+      if (updateRes.rows.length > 0) {
+        const studentId = updateRes.rows[0].student_id;
+        await db.query(
+          `UPDATE students
+           SET is_pro = TRUE
+           WHERE student_id = $1`,
+          [studentId]
+        );
+      }
+    } else if (event.event === 'payment.failed') {
+      const paymentEntity = event.payload.payment.entity;
+      const orderId = paymentEntity.order_id;
+      
+      const updateRes = await db.query(
+        `UPDATE payments
+         SET status = $1, updated_at = NOW()
+         WHERE razorpay_order_id = $2
+         RETURNING student_id`,
+        ['failed', orderId]
+      );
+      
+      if (updateRes.rows.length > 0) {
+         const studentId = updateRes.rows[0].student_id;
+         await db.query(
+           `UPDATE students
+            SET is_pro = FALSE
+            WHERE student_id = $1`,
+           [studentId]
+         );
+      }
+    }
+
+    res.status(200).json({ status: 'ok' });
+  } catch (error) {
+    console.error('Webhook error:', error);
+    res.status(500).json({ success: false, message: 'Webhook processing failed', error: error.message });
+  }
+};
+
 module.exports = {
   createOrder,
   verifyPayment,
+  handleWebhook,
 };

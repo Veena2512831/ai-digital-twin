@@ -29,6 +29,20 @@ const initDbSchema = async () => {
       ALTER TABLE students ADD COLUMN IF NOT EXISTS grade VARCHAR(50);
       ALTER TABLE students ADD COLUMN IF NOT EXISTS date_of_birth DATE;
       ALTER TABLE students ADD COLUMN IF NOT EXISTS guardian_email VARCHAR(255);
+      ALTER TABLE students ADD COLUMN IF NOT EXISTS is_pro BOOLEAN DEFAULT FALSE;
+      ALTER TABLE students ADD COLUMN IF NOT EXISTS pro_plan_expires_at TIMESTAMP WITH TIME ZONE;
+      CREATE TABLE IF NOT EXISTS payments (
+          payment_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          student_id UUID REFERENCES students(student_id) ON DELETE CASCADE,
+          razorpay_order_id VARCHAR(255) UNIQUE NOT NULL,
+          razorpay_payment_id VARCHAR(255),
+          razorpay_signature VARCHAR(255),
+          amount INTEGER NOT NULL,
+          currency VARCHAR(10) NOT NULL,
+          status VARCHAR(50) NOT NULL,
+          created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
     `);
     isSchemaInitialized = true;
     console.log('✅ PostgreSQL Database schema connected & verified (twin_db)');

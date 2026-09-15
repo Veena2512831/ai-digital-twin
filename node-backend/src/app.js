@@ -6,7 +6,11 @@ const apiRoutes = require('./routes/api');
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({
+  verify: (req, res, buf) => {
+    req.rawBody = buf.toString();
+  }
+}));
 
 // Root endpoint
 app.get('/', (req, res) => {
