@@ -40,6 +40,12 @@ from app.api.routes import router as api_router
 
 from app.routes.viva_routes import router as viva_router
 
+# ============================================================
+# GUARDIAN ROUTES
+# ============================================================
+
+from app.routes.guardian_routes import router as guardian_router
+
 
 # ============================================================
 # FASTAPI APPLICATION
@@ -88,6 +94,16 @@ app.include_router(
 
 app.include_router(
     viva_router,
+    prefix="/api/v1",
+)
+
+
+# ============================================================
+# GUARDIAN ROUTER
+# ============================================================
+
+app.include_router(
+    guardian_router,
     prefix="/api/v1",
 )
 
