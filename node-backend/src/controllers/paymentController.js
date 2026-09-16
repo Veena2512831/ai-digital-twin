@@ -2,10 +2,15 @@ const Razorpay = require('razorpay');
 const crypto = require('crypto');
 const db = require('../db');
 
-const razorpay = new Razorpay({
-  key_id: process.env.RAZORPAY_KEY_ID,
-  key_secret: process.env.RAZORPAY_KEY_SECRET,
-});
+let razorpay;
+if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
+  razorpay = new Razorpay({
+    key_id: process.env.RAZORPAY_KEY_ID,
+    key_secret: process.env.RAZORPAY_KEY_SECRET,
+  });
+} else {
+  console.warn('⚠️ Razorpay keys are missing. Payment features will not work.');
+}
 
 // ============================================================
 // CREATE RAZORPAY ORDER
@@ -18,6 +23,13 @@ const createOrder = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'student_id is required',
+      });
+    }
+
+    if (!razorpay) {
+      return res.status(500).json({
+        success: false,
+        message: 'Razorpay is not configured on the server',
       });
     }
 
@@ -171,6 +183,9 @@ const verifyPayment = async (req, res) => {
 const handleWebhook = async (req, res) => {
   try {
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
+    if (!secret) {
+      return res.status(500).json({ success: false, message: 'Webhook secret not configured' });
+    }
     const signature = req.headers['x-razorpay-signature'];
     
     if (!signature) {
