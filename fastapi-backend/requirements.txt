@@ -34,3 +34,5 @@ python-multipart
 google-genai>=0.3.0
 pydub>=0.25.1
 PyJWT==2.9.0
+pytest
+httpx

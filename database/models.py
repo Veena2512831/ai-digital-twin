@@ -707,30 +707,7 @@ class StudentRevisionSettings(Base):
         nullable=False
     )
 
-    from datetime import date, datetime
-import uuid
 
-from sqlalchemy import (
-    Column,
-    String,
-    Text,
-    ForeignKey,
-    ARRAY,
-    DateTime,
-    Date,
-    Integer,
-    Float,
-    Boolean,
-    Index,
-    UniqueConstraint,
-    func,
-)
-
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import relationship
-from pgvector.sqlalchemy import Vector
-
-from database.session import Base
 
 
 # ============================================================
